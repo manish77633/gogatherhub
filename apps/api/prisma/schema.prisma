@@ -75,6 +75,8 @@ enum ReturnStatus {
 }
 
 model User {
+  supportReplies SupportReply[]
+  notificationReads NotificationRead[]
   id           String    @id @default(uuid()) @db.Uuid
   email        String    @unique @db.VarChar(320)
   name         String    @db.VarChar(120)
@@ -281,6 +283,7 @@ model Order {
 }
 
 model SupportTicket {
+  replies SupportReply[]
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @db.Uuid
   subject   String   @db.VarChar(160)
@@ -415,4 +418,23 @@ model ContentEntry {
   updatedAt       DateTime    @updatedAt
   @@unique([kind, slug])
   @@index([kind, published, updatedAt])
+}
+
+model SupportReply {
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+  id String @id @default(uuid()) @db.Uuid
+  ticketId String @db.Uuid
+  authorId String @db.Uuid
+  authorRole String @db.VarChar(20)
+  message String @db.Text
+  createdAt DateTime @default(now())
+  @@index([ticketId, createdAt])
+}
+model NotificationRead {
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @db.Uuid
+  notificationId String @db.VarChar(160)
+  readAt DateTime @default(now())
+  @@id([userId, notificationId])
 }

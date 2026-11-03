@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Heart, Leaf, ShieldCheck, ShoppingBag } from "lucide-react";
 import { useDemoCommerce } from "./storefront";
 import type { LiveProduct } from "./live-catalog";
-import { setCartVariant } from "./variant-storage";
+import { setCartVariant, cartLineKey } from "./variant-storage";
 
 const money = (value: string) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number(value));
 
@@ -19,7 +19,7 @@ export function LiveProductDetail({ product, related = [] }: { product: LiveProd
   useEffect(() => { void fetch(`/api/buyer/recently-viewed/${encodeURIComponent(product.slug)}`, { method: "POST" }).catch(() => {}); }, [product.slug]);
   const variant = product.variants.find(item => item.id === variantId);
   const available = Boolean(variant?.stock);
-  const inBag = Boolean(cart[product.slug]);
+  const inBag = Boolean(cart[cartLineKey(product.slug, variant?.id)]);
   const saved = wishlist.includes(product.slug);
   function add() {
     if (!variant || !available) return;
@@ -48,7 +48,7 @@ export function LiveProductDetail({ product, related = [] }: { product: LiveProd
     </div>
     {related.length > 0 && <section className="ggh-related-products"><h2>You may also like</h2><div>{related.map(item => {
       const relatedVariant = item.variants.find(option => option.stock > 0) ?? item.variants[0];
-      const relatedInBag = Boolean(cart[item.slug]);
+      const relatedInBag = Boolean(cart[cartLineKey(item.slug, relatedVariant?.id)]);
       const relatedSaved = wishlist.includes(item.slug);
       return <article key={item.slug}><Link href={`/shop/products/${item.slug}`}>{item.imageUrl ? <img src={item.imageUrl} alt={item.name} /> : <span>Image unavailable</span>}</Link><button type="button" className={`ggh-related-wish ${relatedSaved ? "saved" : ""}`} aria-label={relatedSaved ? `Remove ${item.name} from wishlist` : `Add ${item.name} to wishlist`} aria-pressed={relatedSaved} onClick={() => toggleWishlist(item.slug)}><Heart size={18} fill={relatedSaved ? "currentColor" : "none"} /></button><small>{item.category.name}</small><Link href={`/shop/products/${item.slug}`}>{item.name}</Link><strong>{relatedVariant ? money(relatedVariant.price) : "Price unavailable"}</strong><button type="button" className="ggh-related-add" disabled={!relatedVariant?.stock || relatedInBag} onClick={() => { if (!relatedVariant) return; setCartVariant(item.slug, relatedVariant.id); addToCart(item.slug); }}><ShoppingBag size={16} />{relatedInBag ? "In bag" : relatedVariant?.stock ? "Add to bag" : "Out of stock"}</button></article>;
     })}</div></section>}

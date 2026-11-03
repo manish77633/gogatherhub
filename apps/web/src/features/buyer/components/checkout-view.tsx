@@ -4,29 +4,14 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useDemoCommerce } from "@/features/buyer/components/storefront";
 import { formatMoney } from "@/features/buyer/data/demo-data";
-import { getCartVariant } from "@/features/buyer/components/variant-storage";
+import { getCartVariant, cartProductSlug } from "@/features/buyer/components/variant-storage";
 import { invalidateAccountPath } from "@/features/buyer/components/account-cache";
 import { validateAddress, type AddressErrors, type AddressField } from "@/features/buyer/components/address-validation";
 
 type Address = { id: string; fullName: string; line1: string; city: string; state: string; pincode: string };
 type CatalogProduct = { slug: string; name: string; imageUrl: string | null; seller: { shopName: string }; variants: { id: string; label: string; price: string; stock: number }[] };
 type Quote = { subtotal: string; discount: string; shipping: string; codFee: string; total: string };
-type RazorpayResult = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
-type RazorpayWindow = Window & { Razorpay?: new (options: Record<string, unknown>) => { open: () => void; on: (event: string, handler: (error: { error?: { description?: string } }) => void) => void } };
-
-async function loadRazorpay() {
-  const view = window as RazorpayWindow;
-  if (view.Razorpay) return view.Razorpay;
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Payment window could not load."));
-    document.head.appendChild(script);
-  });
-  if (!view.Razorpay) throw new Error("Payment window could not load.");
-  return view.Razorpay;
-}
+import { loadRazorpay, type RazorpayResult } from "@/lib/razorpay-client";
 
 export function CheckoutView({ initialCoupon }: { initialCoupon: string }) {
   const { cart, kits, setCartQuantity, removeKit } = useDemoCommerce();
@@ -64,7 +49,7 @@ export function CheckoutView({ initialCoupon }: { initialCoupon: string }) {
     if (!slugs.length) { setCatalog({}); setCatalogLoading(false); return; }
     setCatalogLoading(true); setCatalogError("");
     void Promise.all(slugs.map(async slug => {
-      const response = await fetch(`/api/catalog/products/${encodeURIComponent(slug)}`);
+      const response = await fetch(`/api/catalog/products/${encodeURIComponent(cartProductSlug(slug))}`);
       if (!response.ok) throw new Error("Some items are no longer available. Please review your bag.");
       const product = await response.json() as CatalogProduct;
       if (!product.variants.length) throw new Error(`${product.name} has no available variant.`);

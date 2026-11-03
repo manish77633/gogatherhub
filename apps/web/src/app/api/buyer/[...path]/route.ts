@@ -2,14 +2,16 @@ import { backendCookie } from "@/lib/tab-session";
 import { NextRequest } from "next/server";
 
 async function forward(request: NextRequest, path: string[], method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT") {
-  const allowed = path.length === 1 && ["addresses", "orders", "profile", "support", "cart", "wishlist", "recently-viewed", "reviews", "returns", "coupons"].includes(path[0]) ||
+  const allowed = path.length === 1 && path[0] === "notifications" && method === "GET" ||
+    path.join("/") === "notifications/read" && method === "POST" ||
+    path.length === 3 && path[0] === "support" && path[2] === "replies" && ["GET", "POST"].includes(method) || path.length === 1 && ["addresses", "orders", "profile", "support", "cart", "wishlist", "recently-viewed", "reviews", "returns", "coupons"].includes(path[0]) ||
     path.length === 2 && ["wishlist", "recently-viewed"].includes(path[0]) && (method === "POST" || method === "DELETE" && path[0] === "wishlist") ||
     path.length === 2 && path[0] === "cart" && path[1] === "merge" && method === "POST" ||
     path.length === 2 && path[0] === "orders" && path[1] === "quote" && method === "POST" ||
     path.length === 2 && (path[0] === "orders" && method === "GET" || path[0] === "addresses" && ["DELETE", "PATCH"].includes(method)) ||
     path.length === 3 && path[0] === "addresses" && path[2] === "default" && method === "PATCH" ||
     path.length === 3 && path[0] === "orders" && path[2] === "cancel" && method === "POST" ||
-    path.length === 4 && path[0] === "orders" && path[2] === "payment" && path[3] === "verify" && method === "POST";
+    path.length === 4 && path[0] === "orders" && path[2] === "payment" && ["verify", "retry"].includes(path[3]) && method === "POST";
   if (!allowed) return Response.json({ error: "Unknown endpoint" }, { status: 404 });
   if (method !== "GET" && request.headers.get("origin") !== request.nextUrl.origin) return Response.json({ error: "Invalid origin" }, { status: 403 });
   const body = method === "POST" || method === "PATCH" || method === "PUT" ? await request.text() : undefined;

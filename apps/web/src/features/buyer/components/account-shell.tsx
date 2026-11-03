@@ -16,7 +16,7 @@ const links = [
   { href: "/shop/account/returns", title: "Returns & Refunds", Icon: RotateCcw },
   { href: "/shop/account/profile", title: "Profile Details", Icon: UserRound },
   { href: "/shop/account/coupons", title: "Coupons & Offers", Icon: TicketPercent },
-  { href: "/shop/account/payments", title: "Wallet & Payments", Icon: Wallet },
+  { href: "/shop/account/payments", title: "Payments", Icon: Wallet },
   { href: "/shop/account/notifications", title: "Notifications", Icon: Bell },
   { href: "/shop/account/support", title: "Help & Support", Icon: Headset },
 ];

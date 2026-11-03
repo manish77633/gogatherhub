@@ -19,6 +19,7 @@ http.createServer(async (req, res) => {
     sessions.delete(token); res.setHeader("set-cookie", "ggh_session=; Path=/; Max-Age=0; HttpOnly");
     return reply(200, { ok: true });
   }
+  if (req.url === "/v1/catalog/products/variant-test") return reply(200, { slug: "variant-test", name: "Variant test", description: "Test product", imageUrl: null, category: { name: "Test" }, seller: { shopName: "Test seller" }, variants: [{ id: "11111111-1111-4111-8111-111111111111", label: "Small", price: "100", stock: 10 }, { id: "22222222-2222-4222-8222-222222222222", label: "Large", price: "200", stock: 10 }] });
   if (req.url.startsWith("/v1/catalog")) return reply(200, { items: [], categories: [], variants: [] });
   if (!user) return reply(401, { error: { message: "Sign in required" } });
   if (req.url === "/v1/auth/me" || req.url === "/v1/buyer/profile") return reply(200, user);

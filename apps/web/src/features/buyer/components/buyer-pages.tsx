@@ -1,4 +1,5 @@
 "use client";
+import { cartProductSlug, getCartVariant } from "./variant-storage";
 import { GoogleMark } from "./google-mark";
 
 import Image from "next/image";
@@ -46,7 +47,7 @@ export function CatalogCard({ product }: { product: DemoProduct }) {
     <article className="ggh-catalog-card">
       <div className="ggh-catalog-photo">
         <Link
-          href={`/shop/products/${product.id}`}
+          href={`/shop/products/${cartProductSlug(product.id)}`}
           aria-label={`View ${product.name}`}
         >
           <Image
@@ -75,7 +76,7 @@ export function CatalogCard({ product }: { product: DemoProduct }) {
       </div>
       <div className="ggh-catalog-info">
         <p>{product.brand}</p>
-        <Link href={`/shop/products/${product.id}`}>{product.name}</Link>
+        <Link href={`/shop/products/${cartProductSlug(product.id)}`}>{product.name}</Link>
         <span className="ggh-catalog-rating">
           <Star
             size={13}
@@ -283,10 +284,10 @@ export function CartView() {
     const slugs = Object.keys(cart);
     if (!slugs.length) return;
     void Promise.all(slugs.map(async slug => {
-      const response = await fetch(`/api/catalog/products/${encodeURIComponent(slug)}`);
+      const response = await fetch(`/api/catalog/products/${encodeURIComponent(cartProductSlug(slug))}`);
       if (!response.ok) return null;
       const item = await response.json();
-      return { id: item.slug, name: item.name, brand: item.seller.shopName, category: item.category.name, price: Number(item.variants[0]?.price ?? 0), compareAt: Number(item.variants[0]?.compareAt ?? item.variants[0]?.price ?? 0), rating: 0, image: item.imageUrl?.startsWith("/") || item.imageUrl?.startsWith("https://images.unsplash.com/") ? item.imageUrl : "/gogatherhub-logo.png", description: item.description } as DemoProduct;
+      return { id: slug, name: `${item.name} · ${item.variants.find((v: { id: string }) => v.id === getCartVariant(slug))?.label ?? item.variants[0]?.label ?? ""}`, brand: item.seller.shopName, category: item.category.name, price: Number((item.variants.find((v: { id: string }) => v.id === getCartVariant(slug)) ?? item.variants[0])?.price ?? 0), compareAt: Number(item.variants[0]?.compareAt ?? item.variants[0]?.price ?? 0), rating: 0, image: item.imageUrl?.startsWith("/") || item.imageUrl?.startsWith("https://images.unsplash.com/") ? item.imageUrl : "/gogatherhub-logo.png", description: item.description } as DemoProduct;
     })).then(items => { if (active) setRemoteProducts(items.filter((item): item is DemoProduct => Boolean(item))); }).catch(() => { if (active) setRemoteProducts([]); });
     return () => { active = false; };
   }, [cartKey]);
@@ -479,7 +480,7 @@ export function CartView() {
             {items.map(({ product, quantity }) => (
               <article className="ggh-cart-item min-w-0" key={product.id}>
                 <Link
-                  href={`/shop/products/${product.id}`}
+                  href={`/shop/products/${cartProductSlug(product.id)}`}
                   className="ggh-cart-photo"
                 >
                   <Image
@@ -491,7 +492,7 @@ export function CartView() {
                 </Link>
                 <div className="ggh-cart-item-copy">
                   <p>{product.brand}</p>
-                  <Link href={`/shop/products/${product.id}`}>
+                  <Link href={`/shop/products/${cartProductSlug(product.id)}`}>
                     {product.name}
                   </Link>
                   <small>Demo product · availability to be confirmed</small>

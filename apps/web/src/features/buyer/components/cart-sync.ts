@@ -1,5 +1,5 @@
 import { commerceStorage } from "./commerce-storage";
-import { getCartVariant, setCartVariant } from "./variant-storage";
+import { getCartVariant, setCartVariant, cartLineKey, cartProductSlug } from "./variant-storage";
 
 const CART_KEY = "ggh-demo-cart";
 type ServerCart = { userId: string; items: { slug: string; variantId: string; quantity: number }[] };
@@ -11,7 +11,7 @@ async function selectedItems() {
   const entries = Object.entries(localCart()).filter(([slug, quantity]) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && Number.isInteger(quantity) && quantity > 0 && quantity <= 10000);
   const items = await Promise.all(entries.map(async ([slug, quantity]) => {
     try {
-      const response = await fetch(`/api/catalog/products/${encodeURIComponent(slug)}`);
+      const response = await fetch(`/api/catalog/products/${encodeURIComponent(cartProductSlug(slug))}`);
       if (!response.ok) throw new Error("Catalog lookup failed");
       const product = await response.json();
       const variant = product.variants.find((item: { id: string }) => item.id === getCartVariant(slug)) ?? product.variants[0];
@@ -22,7 +22,7 @@ async function selectedItems() {
 }
 function applyCart(cart: ServerCart) {
   const values: Record<string, number> = {};
-  for (const item of cart.items) { values[item.slug] = item.quantity; setCartVariant(item.slug, item.variantId); }
+  for (const item of cart.items) { values[cartLineKey(item.slug, item.variantId)] = item.quantity; setCartVariant(item.slug, item.variantId); }
   commerceStorage().setItem(CART_KEY, JSON.stringify(values));
   window.dispatchEvent(new Event("ggh-demo-change"));
 }

@@ -409,6 +409,15 @@ export class CheckoutController {
     }
   }
 
+  @Post("orders/:id/payment/retry")
+  async retryPayment(@Headers("cookie") cookie: string | undefined, @Param("id") id: string) {
+    const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
+    if (!z.uuid().safeParse(id).success) throw new BadRequestException("Invalid order");
+    assertRazorpayConfigured();
+    await this.expireStalePayments(buyer.id);
+    return this.onlineCheckout(id, buyer.id);
+  }
+
   private async onlineCheckout(orderId: string, buyerId: string) {
     const order = await this.db.order.findFirst({ where: { id: orderId, buyerId } });
     if (!order || order.paymentMethod !== "ONLINE") throw new BadRequestException("Payment order unavailable");

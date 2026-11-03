@@ -1,4 +1,5 @@
 "use client";
+import { cartLineKey, getCartVariant } from "./variant-storage";
 import { commerceStorage } from "./commerce-storage";
 
 import Image from "next/image";
@@ -197,7 +198,10 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
     )
       return;
     const current = readCart(commerceStorage().getItem(CART_KEY) ?? "{}");
-    if (current[id]) return;
+    const original = id;
+    id = cartLineKey(id, getCartVariant(id));
+    if (id !== original && current[original]) { current[id] = current[original]; delete current[original]; }
+    if (current[id]) { commerceStorage().setItem(CART_KEY, JSON.stringify(current)); publishCommerce(); return; }
     commerceStorage().setItem(
       CART_KEY,
       JSON.stringify({
