@@ -1,3 +1,4 @@
+import { tabSessionsEnabled } from "@/lib/tab-session";
 import type { Metadata } from "next";
 import { Cormorant_Garamond, DM_Sans, Manrope } from "next/font/google";
 import "./globals.css";
@@ -23,7 +24,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${manrope.variable} ${dmSans.variable} ${cormorant.variable}`}
     >
-      <body>{children}</body>
+      <head>{/* Must select the tab before hydration sends authenticated requests. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        {tabSessionsEnabled() && <script src="/tab-session.js" />}
+      </head>
+      <body data-tab-sessions={String(tabSessionsEnabled())}>{children}</body>
     </html>
   );
 }

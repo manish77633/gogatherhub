@@ -1,4 +1,5 @@
 "use client";
+import { commerceStorage } from "./commerce-storage";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
@@ -35,7 +36,7 @@ function displayOrderNumber(value: string) { const parts = value.split("-"); ret
 function OrderProgress({ order }: { order: Order }) { if (order.status === "CANCELLED") return <div className="mb-5 rounded-xl bg-[#fbe9e7] p-4 text-sm text-[#a13b32]">This order was cancelled.</div>; const states = order.sellerOrders.map(group => group.status); const step = states.every(status => status === "DELIVERED") ? 3 : states.some(status => status === "SHIPPED" || status === "DELIVERED") ? 2 : states.some(status => ["ACCEPTED", "PACKED"].includes(status)) ? 1 : 0; return <ol className="account-order-progress" aria-label="Order progress">{["Confirmed", "Processing", "Shipped", "Delivered"].map((label, index) => <li key={label} className={`account-progress-step ${index <= step ? "is-complete" : ""} ${index === step ? "is-current" : ""}`}><span className="account-progress-dot">{index <= step ? "✓" : index + 1}</span>{label}</li>)}</ol>; }
 async function removeSavedProduct(slug: string) {
   await accountRequest(`wishlist/${encodeURIComponent(slug)}`, { method: "DELETE" });
-  try { const current = JSON.parse(localStorage.getItem("ggh-demo-wishlist") ?? "[]") as unknown; if (Array.isArray(current)) localStorage.setItem("ggh-demo-wishlist", JSON.stringify(current.filter(item => item !== slug))); } catch { localStorage.removeItem("ggh-demo-wishlist"); }
+  try { const current = JSON.parse(commerceStorage().getItem("ggh-demo-wishlist") ?? "[]") as unknown; if (Array.isArray(current)) commerceStorage().setItem("ggh-demo-wishlist", JSON.stringify(current.filter(item => item !== slug))); } catch { commerceStorage().removeItem("ggh-demo-wishlist"); }
   window.dispatchEvent(new Event("ggh-demo-change"));
 }
 function OrderRow({ order }: { order: Order }) { const first = order.sellerOrders.flatMap(group => group.items)[0]; return <Link href={`/shop/account/orders/${order.id}`} className="flex items-center gap-3 border-b border-[#f0e7e2] py-4 last:border-0 hover:bg-[#fffaf7]"><Thumb item={first} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-[#302d2c]">{first?.productName ?? "Order"}</strong><span className="text-xs text-[#786f6d]">{displayOrderNumber(order.orderNumber)} · {date(order.createdAt)}</span></div><strong className="hidden text-sm sm:block">{money(order.total)}</strong><Badge status={order.status === "PLACED" ? order.sellerOrders[0]?.status ?? order.status : order.status} /><span className={`${secondary} shrink-0 max-sm:px-3`} aria-label="View order details"><span className="hidden sm:inline">View details</span><ArrowRight size={16} aria-hidden="true" /></span></Link>; }

@@ -1,3 +1,4 @@
+import { backendCookie } from "@/lib/tab-session";
 import { NextRequest } from "next/server";
 
 async function forward(request: NextRequest, path: string[], method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT") {
@@ -15,7 +16,7 @@ async function forward(request: NextRequest, path: string[], method: "GET" | "PO
   if (body && body.length > 32768) return Response.json({ error: "Request too large" }, { status: 413 });
   try {
     const response = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:4000"}/v1/buyer/${path.map(encodeURIComponent).join("/")}`, {
-      method, headers: { cookie: request.headers.get("cookie") ?? "", "content-type": "application/json" }, body,
+      method, headers: { cookie: backendCookie(request), "content-type": "application/json" }, body,
       cache: "no-store", signal: AbortSignal.timeout(10000),
     });
     return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });

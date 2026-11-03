@@ -1,2 +1,2 @@
-import {redirect} from "next/navigation";
-export default function SellerRoot(){redirect("/seller/overview")}
+import {tabRedirect as redirect} from "@/lib/tab-redirect";
+export default async function SellerRoot(){await redirect("/seller/overview")}

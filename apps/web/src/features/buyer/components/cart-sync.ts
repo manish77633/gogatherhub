@@ -1,10 +1,11 @@
+import { commerceStorage } from "./commerce-storage";
 import { getCartVariant, setCartVariant } from "./variant-storage";
 
 const CART_KEY = "ggh-demo-cart";
 type ServerCart = { userId: string; items: { slug: string; variantId: string; quantity: number }[] };
 
 function localCart(): Record<string, number> {
-  try { const value = JSON.parse(localStorage.getItem(CART_KEY) ?? "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch { return {}; }
+  try { const value = JSON.parse(commerceStorage().getItem(CART_KEY) ?? "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch { return {}; }
 }
 async function selectedItems() {
   const entries = Object.entries(localCart()).filter(([slug, quantity]) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && Number.isInteger(quantity) && quantity > 0 && quantity <= 10000);
@@ -22,7 +23,7 @@ async function selectedItems() {
 function applyCart(cart: ServerCart) {
   const values: Record<string, number> = {};
   for (const item of cart.items) { values[item.slug] = item.quantity; setCartVariant(item.slug, item.variantId); }
-  localStorage.setItem(CART_KEY, JSON.stringify(values));
+  commerceStorage().setItem(CART_KEY, JSON.stringify(values));
   window.dispatchEvent(new Event("ggh-demo-change"));
 }
 export async function mergeGuestCart(): Promise<boolean> {

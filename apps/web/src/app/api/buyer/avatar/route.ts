@@ -1,9 +1,10 @@
+import { backendCookie } from "@/lib/tab-session";
 import { NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin) return Response.json({ error: "Invalid origin" }, { status: 403 });
   const api = process.env.API_INTERNAL_URL ?? "http://localhost:4000";
-  const cookie = request.headers.get("cookie") ?? "";
+  const cookie = backendCookie(request);
   const session = await fetch(`${api}/v1/auth/me`, { headers: { cookie }, cache: "no-store" }).catch(() => null);
   if (!session?.ok || (await session.json()).role !== "BUYER") return Response.json({ error: "Please sign in." }, { status: 401 });
   const cloud = process.env.CLOUDINARY_CLOUD_NAME, key = process.env.CLOUDINARY_API_KEY, secret = process.env.CLOUDINARY_API_SECRET;

@@ -1,4 +1,5 @@
 "use client";
+import { commerceStorage } from "./commerce-storage";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -81,7 +82,7 @@ function subscribeCommerce(callback: () => void) {
 function useStoredIds(key: string) {
   const raw = useSyncExternalStore(
     subscribeCommerce,
-    () => localStorage.getItem(key) ?? "[]",
+    () => commerceStorage().getItem(key) ?? "[]",
     () => "[]",
   );
   return readIds(raw);
@@ -117,7 +118,7 @@ function readCart(raw: string): Record<string, number> {
 function useStoredCart() {
   const raw = useSyncExternalStore(
     subscribeCommerce,
-    () => localStorage.getItem(CART_KEY) ?? "{}",
+    () => commerceStorage().getItem(CART_KEY) ?? "{}",
     () => "{}",
   );
   return readCart(raw);
@@ -158,7 +159,7 @@ function readKits(raw: string): BagKit[] {
 function useStoredKits() {
   const raw = useSyncExternalStore(
     subscribeCommerce,
-    () => localStorage.getItem(KITS_KEY) ?? "[]",
+    () => commerceStorage().getItem(KITS_KEY) ?? "[]",
     () => "[]",
   );
   return readKits(raw);
@@ -190,14 +191,14 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
   const addToCart = useCallback((id: string, quantity = 1) => {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) return;
     if (
-      readKits(localStorage.getItem(KITS_KEY) ?? "[]").some(
+      readKits(commerceStorage().getItem(KITS_KEY) ?? "[]").some(
         (kit) => kit.items[id],
       )
     )
       return;
-    const current = readCart(localStorage.getItem(CART_KEY) ?? "{}");
+    const current = readCart(commerceStorage().getItem(CART_KEY) ?? "{}");
     if (current[id]) return;
-    localStorage.setItem(
+    commerceStorage().setItem(
       CART_KEY,
       JSON.stringify({
         ...current,
@@ -209,7 +210,7 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
   const addKit = useCallback(
     (comboId: string, items: Record<string, number>) => {
       if (!demoCombos.some((combo) => combo.id === comboId)) return false;
-      const current = readKits(localStorage.getItem(KITS_KEY) ?? "[]");
+      const current = readKits(commerceStorage().getItem(KITS_KEY) ?? "[]");
       const valid = Object.fromEntries(
         Object.entries(items).filter(
           ([id, qty]) =>
@@ -224,15 +225,15 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
         current.some((kit) => Object.keys(valid).some((id) => kit.items[id]))
       )
         return false;
-      const standalones = readCart(localStorage.getItem(CART_KEY) ?? "{}");
+      const standalones = readCart(commerceStorage().getItem(CART_KEY) ?? "{}");
       for (const id of Object.keys(valid)) {
         if (standalones[id]) {
           valid[id] = Math.min(10000, valid[id] + standalones[id]);
           delete standalones[id];
         }
       }
-      localStorage.setItem(CART_KEY, JSON.stringify(standalones));
-      localStorage.setItem(
+      commerceStorage().setItem(CART_KEY, JSON.stringify(standalones));
+      commerceStorage().setItem(
         KITS_KEY,
         JSON.stringify([
           ...current,
@@ -248,12 +249,12 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
     (kitKey: string, id: string, quantity: number) => {
       if (!Number.isInteger(quantity) || quantity < 0 || quantity > 10000)
         return;
-      const current = readKits(localStorage.getItem(KITS_KEY) ?? "[]");
+      const current = readKits(commerceStorage().getItem(KITS_KEY) ?? "[]");
       const target = current.find((kit) => kit.key === kitKey);
       if (!target || !target.items[id]) return;
       if (quantity === 0) delete target.items[id];
       else target.items[id] = quantity;
-      localStorage.setItem(
+      commerceStorage().setItem(
         KITS_KEY,
         JSON.stringify(current.filter((kit) => Object.keys(kit.items).length)),
       );
@@ -262,10 +263,10 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
     [],
   );
   const removeKit = useCallback((kitKey: string) => {
-    localStorage.setItem(
+    commerceStorage().setItem(
       KITS_KEY,
       JSON.stringify(
-        readKits(localStorage.getItem(KITS_KEY) ?? "[]").filter(
+        readKits(commerceStorage().getItem(KITS_KEY) ?? "[]").filter(
           (kit) => kit.key !== kitKey,
         ),
       ),
@@ -274,22 +275,22 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
   }, []);
   const setCartQuantity = useCallback((id: string, quantity: number) => {
     if (!Number.isInteger(quantity) || quantity < 0 || quantity > 10000) return;
-    const next = readCart(localStorage.getItem(CART_KEY) ?? "{}");
+    const next = readCart(commerceStorage().getItem(CART_KEY) ?? "{}");
     if (quantity === 0) delete next[id];
     else next[id] = quantity;
-    localStorage.setItem(CART_KEY, JSON.stringify(next));
+    commerceStorage().setItem(CART_KEY, JSON.stringify(next));
     window.dispatchEvent(new Event("ggh-demo-change"));
   }, []);
   const removeFromCart = useCallback((id: string) => {
-    const current = readCart(localStorage.getItem(CART_KEY) ?? "{}");
+    const current = readCart(commerceStorage().getItem(CART_KEY) ?? "{}");
     delete current[id];
-    localStorage.setItem(CART_KEY, JSON.stringify(current));
+    commerceStorage().setItem(CART_KEY, JSON.stringify(current));
     window.dispatchEvent(new Event("ggh-demo-change"));
   }, []);
   const toggleWishlist = useCallback((id: string) => {
-    const current = readIds(localStorage.getItem(WISHLIST_KEY) ?? "[]");
+    const current = readIds(commerceStorage().getItem(WISHLIST_KEY) ?? "[]");
     const removing = current.includes(id);
-    localStorage.setItem(
+    commerceStorage().setItem(
       WISHLIST_KEY,
       JSON.stringify(
         current.includes(id)

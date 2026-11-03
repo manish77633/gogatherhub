@@ -1,2 +1,2 @@
-import {redirect} from "next/navigation";
-export default function AdminRoot(){redirect("/admin/overview")}
+import {tabRedirect as redirect} from "@/lib/tab-redirect";
+export default async function AdminRoot(){await redirect("/admin/overview")}

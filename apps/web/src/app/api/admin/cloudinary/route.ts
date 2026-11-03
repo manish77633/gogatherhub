@@ -1,8 +1,9 @@
+import { backendCookie } from "@/lib/tab-session";
 import { NextRequest } from "next/server";
 
 async function authorized(request: NextRequest) {
   try {
-    const response = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:4000"}/v1/auth/me`, { headers: { cookie: request.headers.get("cookie") ?? "" }, cache: "no-store", signal: AbortSignal.timeout(5000) });
+    const response = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:4000"}/v1/auth/me`, { headers: { cookie: backendCookie(request) }, cache: "no-store", signal: AbortSignal.timeout(5000) });
     if (!response.ok) return false;
     const user = await response.json() as { role: string };
     return user.role === "ADMIN";
