@@ -1,0 +1,16 @@
+**/node_modules/
+**/.next/
+**/dist/
+**/build/
+**/coverage/
+**/.env
+**/.env.*
+!**/.env.example
+**/*.tsbuildinfo
+**/*.log
+**/.vercel/
+tmp/
+.chrome-qa/
+.qa-edge-profile*/
+/*.png
+*.pem

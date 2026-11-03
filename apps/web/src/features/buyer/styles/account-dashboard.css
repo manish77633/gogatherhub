@@ -1,0 +1,31 @@
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+.store .account-hub .account-primary-button, .store .account-hub .account-secondary-button, .store .account-hub .account-google-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 650; line-height: 1.2; cursor: pointer; transition: background .2s, border-color .2s, box-shadow .2s, transform .2s; }
+.store .account-hub .account-primary-button { background: #c84332; border: 1px solid #c84332; color: #fff; }
+.store .account-hub .account-primary-button:hover:not(:disabled) { background: #ad3528; border-color: #ad3528; box-shadow: 0 5px 14px #b942302a; transform: translateY(-1px); }
+.store .account-hub .account-secondary-button, .store .account-hub .account-google-button { color: #62463f; border: 1px solid #e7d6cf; background: #fffdfa; }
+.store .account-hub .account-secondary-button:hover:not(:disabled), .store .account-hub .account-google-button:hover { color: #aa382a; border-color: #d8a99e; background: #fff2ed; transform: translateY(-1px); }
+.store .account-hub :is(.account-primary-button,.account-secondary-button,.account-google-button):focus-visible { outline: 2px solid #c84332; outline-offset: 3px; }
+.store .account-hub :is(.account-primary-button,.account-secondary-button):disabled { opacity: .5; cursor: not-allowed; }
+.account-photo-editor { display: flex; align-items: center; gap: 18px; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid #eee3de; }
+.account-photo-editor p { margin: 6px 0 0; color: #786f6d; font-size: 12px; }
+.account-profile-photo { display: flex; flex: 0 0 72px; width: 72px; height: 72px; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background: #f9e8e3; color: #a93629; font-size: 28px; }
+.account-profile-photo img, .account-sidebar-photo { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.account-hub .account-sidebar-avatar { position: relative; display: flex; align-items: center; justify-content: center; flex: 0 0 56px; width: 56px; height: 56px; overflow: hidden; border-radius: 50%; background: #f9e8e3; }
+.account-hub .account-sidebar-avatar .account-sidebar-photo { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+
+.account-hub .account-stat-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 48px; width: 48px; height: 48px; border-radius: 50%; background: #fff1ec; color: #b64232; }
+.account-hub .account-stat-icon svg { display: block; flex: none; margin: 0; }
+.account-hub .account-order-thumb { display: block; position: relative; overflow: hidden; flex: 0 0 64px; width: 64px; height: 64px; border-radius: 8px; background: #f7eee9; }
+.account-hub .account-order-thumb img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+.account-hub .account-order-thumb > svg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.account-hub .account-order-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; list-style: none; margin: 0 0 20px; padding: 20px 8px 16px; border-radius: 10px; background: #f9f3ef; }
+.account-hub .account-order-progress .account-progress-step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; padding: 0 2px; color: #867973; text-align: center; font-size: 12px; font-weight: 600; list-style: none; }
+.account-hub .account-order-progress .account-progress-step::before { content: none; }
+.account-hub .account-progress-step:not(:last-child)::after { content: ''; position: absolute; top: 15px; left: calc(50% + 19px); width: calc(100% - 38px); height: 2px; background: #e3d5cf; }
+.account-hub .account-order-progress .account-progress-step.is-complete { color: #a93629; }
+.account-hub .account-progress-dot { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; background: #e8ddd8; color: #70625d; font-size: 12px; line-height: 1; }
+.account-hub .is-complete .account-progress-dot { background: #c84332; color: white; }
+.account-hub .is-current .account-progress-dot { box-shadow: 0 0 0 4px #f6ded7; }
+@media (max-width: 480px) { .account-hub .account-order-progress .account-progress-step { font-size: 10px; } }

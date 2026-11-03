@@ -1,0 +1,11 @@
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'ADMIN_STAFF';
+CREATE TABLE "StaffRole" (
+  "id" UUID NOT NULL,
+  "name" VARCHAR(100) NOT NULL,
+  "permissions" TEXT[] NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "StaffRole_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "StaffRole_name_key" ON "StaffRole"("name");
+ALTER TABLE "User" ADD COLUMN "staffRoleId" UUID;
+ALTER TABLE "User" ADD CONSTRAINT "User_staffRoleId_fkey" FOREIGN KEY ("staffRoleId") REFERENCES "StaffRole"("id") ON DELETE SET NULL ON UPDATE CASCADE;

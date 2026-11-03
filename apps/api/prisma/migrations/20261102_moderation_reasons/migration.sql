@@ -1,0 +1,2 @@
+ALTER TABLE "Seller" ADD COLUMN "reviewReason" VARCHAR(500);
+ALTER TABLE "Product" ADD COLUMN "reviewReason" VARCHAR(500);
