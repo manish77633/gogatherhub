@@ -1,5 +1,6 @@
 "use client";
 import { cartProductSlug, getCartVariant } from "./variant-storage";
+import { recalledCartProduct, rememberCartProduct } from "./cart-product-cache";
 import { GoogleMark } from "./google-mark";
 
 import Image from "next/image";
@@ -277,17 +278,29 @@ export function CartView() {
   } = useDemoCommerce();
   const [coupon, setCoupon] = useState("");
   const [couponMessage, setCouponMessage] = useState("");
-  const [remoteProducts, setRemoteProducts] = useState<DemoProduct[]>([]);
+  const [remoteProducts, setRemoteProducts] = useState<DemoProduct[]>(() => Object.keys(cart).flatMap(slug => {
+    const item = recalledCartProduct(cartProductSlug(slug));
+    if (!item) return [];
+    const variant = item.variants.find(value => value.id === getCartVariant(slug)) ?? item.variants[0];
+    return [{ id: slug, name: `${item.name} · ${variant?.label ?? ""}`, brand: item.seller.shopName, category: item.category.name, price: Number(variant?.price ?? 0), compareAt: Number(variant?.compareAt ?? variant?.price ?? 0), rating: 0, image: variant?.imageUrl ?? item.imageUrls?.[0] ?? item.imageUrl ?? "/product-placeholder.svg", description: item.description } as DemoProduct];
+  }));
   const cartKey = Object.keys(cart).sort().join("|");
   useEffect(() => {
     let active = true;
     const slugs = Object.keys(cart);
     if (!slugs.length) return;
+    const toCartProduct = (slug: string, item: any): DemoProduct => {
+      const variant = item.variants.find((v: { id: string }) => v.id === getCartVariant(slug)) ?? item.variants[0];
+      const image = [variant?.imageUrl, item.imageUrls?.[0], item.imageUrl].find((url: unknown) => typeof url === "string" && (url.startsWith("/") || url.startsWith("https://")));
+      return { id: slug, name: `${item.name} · ${variant?.label ?? ""}`, brand: item.seller.shopName, category: item.category.name, price: Number(variant?.price ?? 0), compareAt: Number(variant?.compareAt ?? variant?.price ?? 0), rating: 0, image: image ?? "/product-placeholder.svg", description: item.description } as DemoProduct;
+    };
+    setRemoteProducts(slugs.flatMap(slug => { const item = recalledCartProduct(cartProductSlug(slug)); return item ? [toCartProduct(slug, item)] : []; }));
     void Promise.all(slugs.map(async slug => {
       const response = await fetch(`/api/catalog/products/${encodeURIComponent(cartProductSlug(slug))}`);
       if (!response.ok) return null;
       const item = await response.json();
-      return { id: slug, name: `${item.name} · ${item.variants.find((v: { id: string }) => v.id === getCartVariant(slug))?.label ?? item.variants[0]?.label ?? ""}`, brand: item.seller.shopName, category: item.category.name, price: Number((item.variants.find((v: { id: string }) => v.id === getCartVariant(slug)) ?? item.variants[0])?.price ?? 0), compareAt: Number(item.variants[0]?.compareAt ?? item.variants[0]?.price ?? 0), rating: 0, image: item.imageUrl?.startsWith("/") || item.imageUrl?.startsWith("https://images.unsplash.com/") ? item.imageUrl : "/gogatherhub-logo.png", description: item.description } as DemoProduct;
+      rememberCartProduct(item);
+      return toCartProduct(slug, item);
     })).then(items => { if (active) setRemoteProducts(items.filter((item): item is DemoProduct => Boolean(item))); }).catch(() => { if (active) setRemoteProducts([]); });
     return () => { active = false; };
   }, [cartKey]);
@@ -623,7 +636,19 @@ export function CartView() {
 
 export function WishlistView() {
   const { wishlist } = useDemoCommerce();
-  const items = products.filter((product) => wishlist.includes(product.id));
+  const [remote, setRemote] = useState<DemoProduct[]>([]);
+  const wishlistKey = wishlist.join("|");
+  useEffect(() => {
+    const slugs = wishlist.filter(slug => !staticProducts.some(product => product.id === slug));
+    const mapProduct = (item: any): DemoProduct => ({ id: item.slug, name: item.name, brand: item.seller.shopName, category: item.category.name, price: Number(item.variants[0]?.price ?? 0), compareAt: Number(item.variants[0]?.compareAt ?? item.variants[0]?.price ?? 0), rating: 0, image: item.variants[0]?.imageUrl ?? item.imageUrls?.[0] ?? item.imageUrl ?? "/product-placeholder.svg", description: item.description } as DemoProduct);
+    setRemote(slugs.flatMap(slug => { const item = recalledCartProduct(slug); return item ? [mapProduct(item)] : []; }));
+    let active = true;
+    void Promise.all(slugs.map(async slug => {
+      try { const response = await fetch(`/api/catalog/products/${encodeURIComponent(slug)}`); if (!response.ok) return null; const item = await response.json(); rememberCartProduct(item); return mapProduct(item); } catch { return null; }
+    })).then(items => { if (active) setRemote(items.filter((item): item is DemoProduct => Boolean(item))); });
+    return () => { active = false; };
+  }, [wishlistKey]);
+  const items = [...staticProducts, ...remote].filter(product => wishlist.includes(product.id));
   return (
     <>
       <SelectionHeader

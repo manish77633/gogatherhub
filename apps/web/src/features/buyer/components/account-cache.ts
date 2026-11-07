@@ -1,19 +1,17 @@
 import { accountRequest } from "./account-data";
-
-const values = new Map<string, unknown>();
-const pending = new Map<string, Promise<unknown>>();
-const generations = new Map<string, number>();
+import { ResourceCache } from "../../../lib/resource-cache";
+const cache = new ResourceCache();
+const active = new Set<string>();
+const signal = () => { if(typeof window!=="undefined") window.dispatchEvent(new CustomEvent("ggh-account-refresh",{detail:active.size})); };
 const key = (userId: string, path: string) => `${userId}:${path}`;
-export function cachedAccountData<T>(userId: string, path: string): T | undefined { return values.get(key(userId, path)) as T | undefined; }
-export async function loadAccountData<T>(userId: string, path: string, fresh = false): Promise<T> {
-  const id = key(userId, path);
-  if (!fresh && values.has(id)) return values.get(id) as T;
-  if (pending.has(id)) return pending.get(id) as Promise<T>;
-  const generation = generations.get(userId) ?? 0;
-  const task = accountRequest<T>(path).then(result => { if ((generations.get(userId) ?? 0) === generation) values.set(id, result); return result; }).finally(() => { if (pending.get(id) === task) pending.delete(id); });
-  pending.set(id, task);
-  return task;
+export function cachedAccountData<T>(userId: string, path: string): T | undefined { return cache.peek(key(userId, path))?.value as T | undefined; }
+export function accountDataIsStale(userId: string, path: string) { return cache.stale(key(userId, path)); }
+export function loadAccountData<T>(userId: string, path: string, fresh = false): Promise<T> {
+  const id=key(userId,path);const updating=fresh||cache.stale(id);if(updating){active.add(id);signal();}
+  return cache.read(id, () => accountRequest<T>(path), fresh).finally(()=>{if(updating){active.delete(id);signal();}});
 }
-export function invalidateAccountData(userId: string, path: string) { values.delete(key(userId, path)); }
-export function invalidateAccountPath(path: string) { for (const item of values.keys()) if (item.endsWith(`:${path}`)) values.delete(item); }
-export function clearAccountData(userId: string) { generations.set(userId, (generations.get(userId) ?? 0) + 1); for (const item of values.keys()) if (item.startsWith(`${userId}:`)) values.delete(item); for (const item of pending.keys()) if (item.startsWith(`${userId}:`)) pending.delete(item); }
+export function invalidateAccountData(userId: string, path: string) { cache.invalidate(id => id === key(userId, path) || id.startsWith(`${key(userId, path)}/`)); }
+export function invalidateAccountPath(path: string) { cache.invalidate(id => id.endsWith(`:${path}`) || id.includes(`:${path}/`)); }
+export function clearAccountData(userId: string) { cache.invalidate(id => id.startsWith(`${userId}:`), true); }
+
+if(typeof window!=="undefined")window.addEventListener("ggh-session-ended",()=>{cache.invalidate(()=>true,true);active.clear();signal();});

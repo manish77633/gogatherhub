@@ -1,26 +1,33 @@
+import { ResourceCache } from "../../../lib/resource-cache";
 type Panel = "admin" | "seller";
-type Cached = { value: unknown; at: number };
-const cache = new Map<string, Cached>();
-const pending = new Map<string, Promise<unknown>>();
-const generations = new Map<string, number>();
+const cache = new ResourceCache();
 const key = (userId: string, panel: Panel, resource: string) => `${userId}:${panel}:${resource}`;
-export function cachedPanel(userId: string, panel: Panel, resource: string) { return cache.get(key(userId, panel, resource)); }
-export async function fetchPanel(userId: string, panel: Panel, resource: string, fresh = false) {
-  const id = key(userId, panel, resource);
-  const current = cache.get(id);
-  if (!fresh && current) return current.value;
-  if (pending.has(id)) return pending.get(id);
-  const generation = generations.get(userId) ?? 0;
-  const task = fetch(`/api/dashboard/${panel}/${resource}`, { cache: "no-store" }).then(async response => {
+export function cachedPanel(userId: string, panel: Panel, resource: string) { return cache.peek(key(userId, panel, resource)); }
+export function panelIsStale(userId: string, panel: Panel, resource: string) { return cache.stale(key(userId, panel, resource)); }
+export function fetchPanel(userId: string, panel: Panel, resource: string, fresh = false) {
+  return cache.read(key(userId, panel, resource), async () => {
+    const response = await fetch(`/api/dashboard/${panel}/${resource}`, { cache: "no-store" });
     const result = await response.json();
-    if (!response.ok) throw new Error(result?.message ?? result?.error?.message ?? "Could not load records");
-    if ((generations.get(userId) ?? 0) === generation) cache.set(id, { value: result, at: Date.now() });
+    if (!response.ok) { if (response.status === 401 || response.status === 403) clearDashboardCache(userId); throw new Error(result?.message ?? result?.error?.message ?? "Could not load records"); }
     return result;
-  }).finally(() => { if (pending.get(id) === task) pending.delete(id); });
-  pending.set(id, task);
-  return task;
+  }, fresh);
 }
 export async function warmDashboardCache(userId: string, panel: Panel, resources: string[]) {
-  for (let index = 0; index < resources.length; index += 3) await Promise.allSettled(resources.slice(index, index + 3).map(resource => fetchPanel(userId, panel, resource)));
+  for (const resource of resources) await fetchPanel(userId, panel, resource).catch(() => {});
 }
-export function clearDashboardCache(userId: string) { generations.set(userId, (generations.get(userId) ?? 0) + 1); for (const item of cache.keys()) if (item.startsWith(`${userId}:`)) cache.delete(item); for (const item of pending.keys()) if (item.startsWith(`${userId}:`)) pending.delete(item); }
+export function invalidateDashboardMutation(userId: string, panel: Panel, path: string) {
+  const resource = path.split("/")[0];
+  if (["categories", "category-requests"].includes(resource)) taxonomy.invalidate(() => true, true);
+  const dependencies: Record<string, string[]> = { products: ["products", "inventory", "overview", "analytics", "reviews"], inventory: ["inventory", "overview", "products"], orders: ["orders", "overview", "analytics", "customers", "payments"], returns: ["returns", "overview"], sellers: ["sellers", "overview", "products"], "category-requests": ["category-requests", "categories"], shop: ["shop", "overview"], staff: ["staff", "roles"], support: ["support"], categories: ["categories", "products"] };
+  const affected = dependencies[resource] ?? [resource];
+  cache.invalidate(id => affected.some(item => id === key(userId, panel, item) || id.startsWith(`${key(userId, panel, item)}/`)));
+}
+const views = new Map<string, { query: string; filter: string; scroll: number }>();
+export function panelView(userId: string, panel: Panel, resource: string) { return views.get(key(userId, panel, resource)); }
+export function savePanelView(userId: string, panel: Panel, resource: string, value: { query: string; filter: string; scroll: number }) { views.set(key(userId, panel, resource), value); }
+export function clearDashboardCache(userId: string) { cache.invalidate(id => id.startsWith(`${userId}:`), true); for (const id of views.keys()) if (id.startsWith(`${userId}:`)) views.delete(id); }
+
+const taxonomy = new ResourceCache(60_000, 1);
+export function fetchCategories() { return taxonomy.read("categories", async () => { const response = await fetch("/api/catalog/categories"); if (!response.ok) throw new Error("Could not load categories"); return response.json(); }); }
+
+if(typeof window!=="undefined")window.addEventListener("ggh-session-ended",()=>{cache.invalidate(()=>true,true);views.clear();});

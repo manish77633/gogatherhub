@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Headers, HttpCode, Inject, Post, Req, 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import { PrismaService } from "../../database/prisma.service";
+import { finalizeCapturedPayment } from "./payment-finalization";
 import { fetchRazorpayPayment } from "./razorpay";
 
 @Controller("payments/razorpay")
@@ -24,12 +25,7 @@ export class RazorpayWebhookController {
     if (!order || order.paymentMethod !== "ONLINE") return { ok: true };
     const payment = await fetchRazorpayPayment(id);
     if (payment.id !== id || payment.order_id !== razorpayOrderId || payment.status !== "captured" || payment.currency !== "INR" || payment.amount !== order.total.mul(100).toNumber()) throw new BadRequestException("Payment mismatch");
-    const updated = await this.db.order.updateMany({ where: { id: order.id, status: "PAYMENT_PENDING", paymentStatus: "PENDING" }, data: { status: "PLACED", paymentStatus: "PAID", razorpayPaymentId: id, paymentExpiresAt: null } });
-    if (updated.count) {
-      const items = await this.db.orderItem.findMany({ where: { sellerOrder: { orderId: order.id } }, select: { variantId: true } });
-      if (items.length) await this.db.cartItem.deleteMany({ where: { userId: order.buyerId, variantId: { in: items.map(item => item.variantId) } } });
-      await this.db.auditLog.create({ data: { actorId: order.buyerId, action: "payment.captured.webhook", entity: "order", entityId: order.id } });
-    }
+    await finalizeCapturedPayment(this.db, order.id, order.buyerId, id, "payment.captured.webhook");
     return { ok: true };
   }
 }

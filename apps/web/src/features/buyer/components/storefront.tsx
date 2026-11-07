@@ -4,6 +4,8 @@ import { commerceStorage } from "./commerce-storage";
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { CmsSiteSection } from "./cms-site-section";
 import {
   Search,
   UserRound,
@@ -27,17 +29,19 @@ import {
   useContext,
   useEffect,
   useRef,
+  useMemo,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { formatMoney, products, type DemoProduct } from "@/features/buyer/data/demo-data";
 import { mergeGuestCart, saveCart } from "./cart-sync";
-import { mergeWishlist } from "./wishlist-sync";
+import { mergeWishlist, syncWishlistToggle } from "./wishlist-sync";
 import {
   categoryHref,
   demoCombos,
   superCategories,
+  collectionCategorySlugs,
 } from "@/features/buyer/data/store-catalog";
 
 export type BagKit = {
@@ -86,7 +90,7 @@ function useStoredIds(key: string) {
     () => commerceStorage().getItem(key) ?? "[]",
     () => "[]",
   );
-  return readIds(raw);
+  return useMemo(() => readIds(raw), [raw]);
 }
 function readCart(raw: string): Record<string, number> {
   try {
@@ -122,7 +126,7 @@ function useStoredCart() {
     () => commerceStorage().getItem(CART_KEY) ?? "{}",
     () => "{}",
   );
-  return readCart(raw);
+  return useMemo(() => readCart(raw), [raw]);
 }
 function readKits(raw: string): BagKit[] {
   try {
@@ -163,7 +167,7 @@ function useStoredKits() {
     () => commerceStorage().getItem(KITS_KEY) ?? "[]",
     () => "[]",
   );
-  return readKits(raw);
+  return useMemo(() => readKits(raw), [raw]);
 }
 function publishCommerce() {
   window.dispatchEvent(new Event("ggh-demo-change"));
@@ -177,8 +181,13 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
   const synced = useRef(false);
   useEffect(() => {
     let active = true;
-    void mergeGuestCart().then(ok => { if (active) synced.current = ok; }).catch(() => {});
-    void mergeWishlist().catch(() => {});
+    if (!/\/(?:login|register|admin-login|seller-register)$/.test(window.location.pathname)) {
+      void fetch("/api/auth/me", { cache: "no-store" }).then(async response => {
+        if (!active || !response.ok || (await response.json()).role !== "BUYER") return;
+        void mergeGuestCart().then(ok => { if (active) synced.current = ok; }).catch(() => {});
+        void mergeWishlist().catch(() => {});
+      }).catch(() => {});
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onChange = () => { if (!synced.current) return; clearTimeout(timer); timer = setTimeout(() => { void saveCart().catch(() => {}); }, 400); };
     const onSynced = () => { synced.current = true; };
@@ -303,26 +312,13 @@ function DemoCommerceProvider({ children }: { children: ReactNode }) {
       ),
     );
     window.dispatchEvent(new Event("ggh-demo-change"));
-    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) void fetch(`/api/buyer/wishlist/${encodeURIComponent(id)}`, { method: removing ? "DELETE" : "POST" }).catch(() => {});
+    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) syncWishlistToggle(id, removing);
   }, []);
-  return (
-    <CommerceContext
-      value={{
-        cart,
-        kits,
-        wishlist,
-        addToCart,
-        addKit,
-        setKitQuantity,
-        removeKit,
-        setCartQuantity,
-        removeFromCart,
-        toggleWishlist,
-      }}
-    >
-      {children}
-    </CommerceContext>
-  );
+  const value = useMemo(() => ({cart,kits,wishlist,addToCart,addKit,setKitQuantity,removeKit,setCartQuantity,removeFromCart,toggleWishlist}),[cart,kits,wishlist,addToCart,addKit,setKitQuantity,removeKit,setCartQuantity,removeFromCart,toggleWishlist]);
+  const [syncError,setSyncError]=useState("");
+  useEffect(()=>{const failed=(event:Event)=>setSyncError((event as CustomEvent<string>).detail);window.addEventListener("ggh-commerce-error",failed);return()=>window.removeEventListener("ggh-commerce-error",failed);},[]);
+  return <CommerceContext value={value}>{syncError&&<div role="alert" className="toast-region"><div className="toast">{syncError}<button onClick={()=>setSyncError("")} aria-label="Dismiss sync error">×</button></div></div>}{children}</CommerceContext>;
+
 }
 
 const storeIcons = {
@@ -350,7 +346,9 @@ export function StoreIcon({
   return <Icon size={size} strokeWidth={1.8} aria-hidden="true" />;
 }
 
-function Brand({ footer = false }: { footer?: boolean }) {
+type CmsShellSection={pageKey?:string;key:string;published:Record<string,unknown>;position?:number};
+function cmsData(sections:CmsShellSection[],key:string){return sections.find(section=>section.key===key)?.published??{}}
+function Brand({ footer = false, logoUrl }: { footer?: boolean; logoUrl?: string }) {
   return (
     <Link
       href="/shop"
@@ -358,7 +356,7 @@ function Brand({ footer = false }: { footer?: boolean }) {
       aria-label="Go Gather Hub home"
     >
       <Image
-        src="/gogatherhub-logo.png"
+        src={logoUrl&&logoUrl.startsWith("https://")?logoUrl:"/gogatherhub-logo.png"}
         alt="Go Gather Hub"
         width={798}
         height={148}
@@ -368,8 +366,12 @@ function Brand({ footer = false }: { footer?: boolean }) {
     </Link>
   );
 }
-function StoreHeader() {
+function StoreHeader({sections}:{sections:CmsShellSection[]}) {
+  const announcement=cmsData(sections,"announcement"), header=cmsData(sections,"header"), navigation=cmsData(sections,"navigation");
+  const navItems=Array.isArray(navigation.items)?navigation.items.filter((item):item is Record<string,unknown>=>Boolean(item)&&typeof item==="object"):[];
   const [menu, setMenu] = useState(false);
+  const [dbCategories, setDbCategories] = useState<Array<{id:string;name:string;slug:string;parentId:string|null}>>([]);
+  useEffect(() => { let active = true; void fetch("/api/catalog/categories").then(r => r.ok ? r.json() : []).then(rows => { if(active) setDbCategories(rows); }).catch(() => {}); return () => { active = false; }; }, []);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
@@ -396,6 +398,8 @@ function StoreHeader() {
   }, []);
   const { cart, kits, wishlist } = useDemoCommerce();
   const search = searchTerm.trim().toLowerCase();
+  const liveCollections = dbCategories.filter(category => !category.parentId).map(parent => ({label: parent.name, slug: parent.slug, groups: [{title: "Shop by category", links: dbCategories.filter(category => category.parentId === parent.id).map(child => ({label:child.name,slug:child.slug}))}]}));
+  const mappedCollections = superCategories.filter(category => Boolean(collectionCategorySlugs[category.slug]) && (!dbCategories.length || collectionCategorySlugs[category.slug].some(slug => dbCategories.some(item => item.slug === slug || dbCategories.find(parent => parent.id === item.parentId)?.slug === slug))));
   const matches = search
     ? products
         .filter((product) =>
@@ -406,7 +410,7 @@ function StoreHeader() {
         .slice(0, 5)
     : [];
   const categoryMatches = search
-    ? superCategories
+    ? [...mappedCollections, ...liveCollections]
         .filter(
           (category) =>
             category.label.toLowerCase().includes(search) ||
@@ -450,7 +454,7 @@ function StoreHeader() {
         <div className="store-header-width">
           <span>
             <Sparkles size={13} strokeWidth={1.8} aria-hidden="true" /> Free
-            Gifts for every celebration
+            {String(announcement.heading??"Gifts for every celebration")}
           </span>
           <span className="announcement-right">
             Go Gather Hub · India &nbsp; | &nbsp; INR &nbsp; | &nbsp; English
@@ -459,7 +463,7 @@ function StoreHeader() {
       </div>
       <header className="store-header">
         <div className="store-header-inner">
-          <Brand />
+          <Brand logoUrl={typeof header.imageUrl==="string"?header.imageUrl:undefined}/>
           <form className="store-search" action="/shop/products">
             <label className="sr-only" htmlFor="store-search">
               Search products
@@ -611,16 +615,27 @@ function StoreHeader() {
             <StoreIcon name="menu" size={15} />
             <span>Shop All</span>
           </Link>
-          {superCategories.map((item) => (
+          {navItems.length>0?navItems.map((item,index)=><Link key={index} href={typeof (item.buttonUrl??item.url)==="string"&&String(item.buttonUrl??item.url).startsWith("/shop")?String(item.buttonUrl??item.url):"/shop/products"} onClick={()=>setMenu(false)}>{String(item.heading??item.label??item.title??"Shop")}</Link>):liveCollections.map((item) => (
             <div
               className="ggh-nav-item"
               key={item.slug}
-              onMouseEnter={() => { setShowPin(false); setOpenCategory(item.slug); }}
+              onMouseEnter={(event) => {
+                setShowPin(false);
+                setOpenCategory(item.slug);
+                const navItem = event.currentTarget;
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                  const panel = navItem.querySelector<HTMLElement>(".ggh-mega-menu");
+                  if (!panel) return;
+                  const bounds = panel.getBoundingClientRect();
+                  const shift = bounds.left < 16 ? 16 - bounds.left : bounds.right > window.innerWidth - 16 ? window.innerWidth - 16 - bounds.right : 0;
+                  panel.style.setProperty("--mega-shift", `${shift}px`);
+                }));
+              }}
               onMouseLeave={() => setOpenCategory(null)}
             >
               <div className="ggh-nav-item-top">
                 <Link
-                  href={categoryHref(item.slug)}
+                  href={dbCategories.some(category => category.slug===item.slug) ? `/shop/products?category=${encodeURIComponent(item.slug)}` : categoryHref(item.slug)}
                   onClick={() => {
                     setMenu(false);
                     setOpenCategory(null);
@@ -643,12 +658,13 @@ function StoreHeader() {
               </div>
               <div
                 className={`ggh-mega-menu ${openCategory === item.slug ? "is-visible" : ""}`}
+                style={{"--mega-link-count": Math.max(1, item.groups.reduce((count, group) => count + group.links.length, 0)), "--mega-group-count": item.groups.length} as React.CSSProperties}
               >
                 <div className="ggh-mega-intro">
                   <span>Explore the occasion</span>
                   <h2>{item.label}</h2>
                   <Link
-                    href={categoryHref(item.slug)}
+                    href={dbCategories.some(category => category.slug===item.slug) ? `/shop/products?category=${encodeURIComponent(item.slug)}` : categoryHref(item.slug)}
                     onClick={() => {
                       setMenu(false);
                       setOpenCategory(null);
@@ -663,7 +679,7 @@ function StoreHeader() {
                     {group.links.map((link) => (
                       <Link
                         key={link.slug}
-                        href={categoryHref(link.slug)}
+                        href={dbCategories.some(category => category.slug===link.slug) ? `/shop/products?category=${encodeURIComponent(link.slug)}` : categoryHref(link.slug)}
                         onClick={() => {
                           setMenu(false);
                           setOpenCategory(null);
@@ -674,6 +690,12 @@ function StoreHeader() {
                     ))}
                   </div>
                 ))}
+                {(() => {
+                  const keywords = [item.label, ...item.groups.flatMap(group => group.links.map(link => link.label))].map(value => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).filter(value => value.length > 3);
+                  const image = products.find(product => keywords.some(keyword => `${product.name} ${product.category}`.toLowerCase().includes(keyword)));
+                  const imageProduct = image ?? products.find(product => product.image);
+                  return imageProduct?.image ? <Link className="ggh-mega-image" href={categoryHref(item.slug)} aria-label={`Explore ${item.label}`} onClick={() => { setMenu(false); setOpenCategory(null); }}><img src={imageProduct.image} alt={image ? image.name : `${item.label} collection`} loading="lazy"/><span>Explore {item.label} <ArrowRight size={14}/></span></Link> : null;
+                })()}
               </div>
             </div>
           ))}
@@ -686,7 +708,9 @@ function StoreHeader() {
     </>
   );
 }
-function StoreFooter() {
+function StoreFooter({sections,pages}:{sections:CmsShellSection[];pages:Array<{kind:string;slug:string;title:string}>}) {
+  const footer=cmsData(sections,"footer"), social=cmsData(sections,"social-links");
+  const socialItems=Array.isArray(social.items)?social.items.filter((item):item is Record<string,unknown>=>Boolean(item)&&typeof item==="object"):[];
   const [mail, setMail] = useState("");
   const [message, setMessage] = useState("");
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -701,10 +725,9 @@ function StoreFooter() {
     <footer className="store-footer">
       <div className="store-footer-grid">
         <div className="store-footer-about">
-          <Brand footer />
+          <Brand footer logoUrl={typeof footer.imageUrl==="string"?footer.imageUrl:undefined}/>
           <p>
-            Making every celebration more special with thoughtful gifts and
-            elegant decor.
+            {String(footer.description??"Making every celebration more special with thoughtful gifts and elegant decor.")}
           </p>
         </div>
         <div>
@@ -716,6 +739,7 @@ function StoreFooter() {
           <Link href="/shop/seller-register">Sell with us</Link>
           <Link href="/shop/admin-login">Admin sign in</Link>
           <a href="/shop#faqs">FAQ</a>
+          {pages.filter(item=>item.kind==="PAGE").slice(0,6).map(item=><Link key={item.slug} href={`/shop/content/page/${item.slug}`}>{item.title}</Link>)}
         </div>
         <div>
           <h3>Categories</h3>
@@ -729,6 +753,7 @@ function StoreFooter() {
           <a href="/shop#faqs">Help Center</a>
           <a href="/shop#faqs">Shipping Info</a>
           <a href="/shop#faqs">Returns & Refunds</a>
+          {pages.filter(item=>item.kind==="POLICY").slice(0,6).map(item=><Link key={item.slug} href={`/shop/content/policy/${item.slug}`}>{item.title}</Link>)}
           <Link href="/shop/cart">Your Cart</Link>
         </div>
         <div className="store-footer-news">
@@ -760,6 +785,7 @@ function StoreFooter() {
           )}
         </div>
       </div>
+      {socialItems.length>0&&<div className="store-social-links">{socialItems.map((item,index)=><a key={index} href={typeof (item.buttonUrl??item.url)==="string"&&String(item.buttonUrl??item.url).startsWith("https://")?String(item.buttonUrl??item.url):"#"} rel="noopener noreferrer" target="_blank">{String(item.heading??item.label??"Social")}</a>)}</div>}
       <div className="store-footer-bottom">
         <span>© 2026 Go Gather Hub. All rights reserved. · UI preview</span>
         <span className="store-legal-pending">
@@ -770,13 +796,26 @@ function StoreFooter() {
     </footer>
   );
 }
-export function StorefrontShell({ children }: { children: ReactNode }) {
+export function StorefrontShell({ children,sections=[],pages=[] }: { children: ReactNode; sections?:CmsShellSection[];pages?:Array<{kind:string;slug:string;title:string}> }) {
+  const router = useRouter();
+  const pathname=usePathname();
+  const segments=pathname.split("/").filter(Boolean);
+  const pageKey=segments[1]==="products"&&segments[2]?"product-detail":segments[1]==="account"?"account":segments[1]==="content"?"content":segments[1]==="combos"?"combos":segments[1]??"home";
+  const pageSections=sections.filter(section=>section.pageKey===pageKey&&pageKey!=="home").sort((a,b)=>Number(a.published.position??a.position??0)-Number(b.published.position??b.position??0));
+  const homeSections=sections.filter(section=>section.pageKey==="home");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      for (const path of ["/shop/products", "/shop/cart", "/shop/account", "/shop/content", ...superCategories.map(item => categoryHref(item.slug))]) router.prefetch(path);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [router]);
   return (
     <DemoCommerceProvider>
       <div className="store">
-        <StoreHeader />
+        <StoreHeader sections={homeSections}/>
         {children}
-        <StoreFooter />
+        {pageSections.length>0&&<div className="ggh-page ggh-cms-page-sections"><div className="ggh-page-container">{pageSections.map(section=><CmsSiteSection key={section.key} section={{...section,position:section.position??0}}/>)}</div></div>}
+        <StoreFooter sections={homeSections} pages={pages}/>
       </div>
     </DemoCommerceProvider>
   );

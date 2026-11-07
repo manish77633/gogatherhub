@@ -3,10 +3,10 @@ import { z } from "zod";
 import type { Response } from "express";
 import { AuthService, SESSION_COOKIE } from "./auth.service";
 
-const email = z.email().max(320);
+const email = z.string().trim().toLowerCase().pipe(z.email().max(320));
 const password = z.string().min(10).max(128);
-const registerSchema = z.object({ name: z.string().trim().min(2).max(120), email, password });
-const loginSchema = z.object({ email, password });
+const registerSchema = z.strictObject({ name: z.string().trim().min(2).max(120), email, password });
+const loginSchema = z.strictObject({ email, password });
 
 @Controller("auth")
 export class AuthController {
@@ -19,7 +19,7 @@ export class AuthController {
   @Post("register")
   async register(@Body() body: unknown, @Res({ passthrough: true }) response: Response) {
     const parsed = registerSchema.safeParse(body);
-    if (!parsed.success) return response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid registration details" } });
+    if (!parsed.success) return response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid registration details", fields: parsed.error.flatten().fieldErrors } });
     const session = await this.auth.register(parsed.data);
     this.setCookie(response, session.token, session.expiresAt);
     return { ok: true, role: session.role };
@@ -29,7 +29,7 @@ export class AuthController {
   @HttpCode(200)
   async login(@Body() body: unknown, @Res({ passthrough: true }) response: Response) {
     const parsed = loginSchema.safeParse(body);
-    if (!parsed.success) return response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid sign in details" } });
+    if (!parsed.success) return response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid sign in details", fields: parsed.error.flatten().fieldErrors } });
     const session = await this.auth.login(parsed.data);
     this.setCookie(response, session.token, session.expiresAt);
     return { ok: true, role: session.role };
@@ -38,14 +38,14 @@ export class AuthController {
   @Post("register-seller")
   async registerSeller(@Body() body: unknown, @Res({ passthrough: true }) response: Response) {
     const parsed = registerSchema.extend({ shopName: z.string().trim().min(2).max(160) }).safeParse(body);
-    if (!parsed.success) return response.status(400).json({ error: { message: "Enter valid seller registration details" } });
+    if (!parsed.success) return response.status(400).json({ error: { message: "Enter valid seller registration details", fields: parsed.error.flatten().fieldErrors } });
     const session = await this.auth.registerSeller(parsed.data);
     this.setCookie(response, session.token, session.expiresAt);
     return { ok: true, role: session.role };
   }
 
   private async googleIdentity(body: unknown) {
-    const parsed = z.object({ idToken: z.string().min(100).max(10000) }).safeParse(body);
+    const parsed = z.strictObject({ idToken: z.string().min(100).max(10000) }).safeParse(body);
     if (!parsed.success || !process.env.GOOGLE_CLIENT_ID) throw new UnauthorizedException("Google sign in unavailable");
     const verification = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(parsed.data.idToken)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (!verification?.ok) throw new UnauthorizedException("Invalid Google token");

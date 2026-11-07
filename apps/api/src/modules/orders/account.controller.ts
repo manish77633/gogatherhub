@@ -24,8 +24,8 @@ export class AccountController {
   @Post("support/:id/replies")
   async reply(@Headers("cookie") cookie: string | undefined, @Param("id") id: string, @Body() body: unknown) {
     const { user } = await this.ticket(cookie, id);
-    const input = z.object({ message: z.string().trim().min(1).max(5000) }).safeParse(body);
-    if (!input.success) throw new BadRequestException("Enter a reply of 1–5000 characters");
+    const input = z.strictObject({ message: z.string().trim().min(1).max(5000) }).safeParse(body);
+    if (!input.success) throw new BadRequestException({ message: "Enter a reply of 1–5000 characters", fields: input.error.flatten().fieldErrors, issues: input.error.flatten().formErrors });
     return this.db.$transaction(async tx => {
       const reply = await tx.supportReply.create({ data: { ticketId: id, authorId: user.id, authorRole: user.role, message: input.data.message } });
       await tx.supportTicket.update({ where: { id }, data: { updatedAt: new Date(), ...(user.role === Role.BUYER ? { status: "OPEN" } : {}) } });
@@ -46,8 +46,8 @@ export class AccountController {
   @Post("notifications/read")
   async read(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const user = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const input = z.object({ ids: z.array(z.string().max(160)).max(200) }).safeParse(body);
-    if (!input.success) throw new BadRequestException("Invalid notifications");
+    const input = z.strictObject({ ids: z.array(z.string().max(160)).max(200) }).safeParse(body);
+    if (!input.success) throw new BadRequestException({ message: "Invalid notifications", fields: input.error.flatten().fieldErrors, issues: input.error.flatten().formErrors });
     const available = new Set((await this.notifications(cookie)).map(row => row.id));
     const ids = input.data.ids.filter(id => available.has(id));
     await this.db.notificationRead.createMany({ data: ids.map(notificationId => ({ userId: user.id, notificationId })), skipDuplicates: true });

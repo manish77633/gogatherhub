@@ -1,3 +1,4 @@
+import { apiErrorMessage } from "../../../lib/api-error";
 export type Profile = { id: string; name: string; email: string; avatarUrl?: string | null; googleLinked?: boolean; createdAt: string };
 export type Address = { id: string; fullName: string; phone: string; line1: string; line2: string | null; city: string; state: string; pincode: string; isDefault: boolean };
 export type OrderItem = { id: string; productName: string; quantity: number; lineTotal: string; variant: { label: string; product: { slug: string; imageUrl: string | null } } };
@@ -10,7 +11,8 @@ export type WishlistEntry = { product: { slug: string; name: string; imageUrl: s
 export async function accountRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api/buyer/${path}`, { cache: "no-store", ...options, headers: { ...(options?.body ? { "content-type": "application/json" } : {}), ...options?.headers } });
   const result = await response.json();
-  if (!response.ok) throw new Error(typeof result.message === "string" ? result.message : result.error?.message ?? "Request failed. Please try again.");
+  if (!response.ok) throw new Error(apiErrorMessage(result,"Request failed. Please try again."));
+  if (options?.method && !["GET", "HEAD"].includes(options.method)) { const { invalidateAccountPath } = await import("./account-cache"); const resource = path.split("/")[0]; invalidateAccountPath(resource); if(resource === "orders") { invalidateAccountPath("notifications"); invalidateAccountPath("returns"); } }
   return result as T;
 }
 export const money = (value: string | number) => `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 0 })}`;

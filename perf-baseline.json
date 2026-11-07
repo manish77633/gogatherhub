@@ -1,0 +1,62 @@
+[
+  {
+    "path": "buyer/profile",
+    "ms": [
+      290,
+      122,
+      114,
+      112
+    ],
+    "bytes": 287
+  },
+  {
+    "path": "buyer/orders",
+    "ms": [
+      793,
+      447,
+      456,
+      452
+    ],
+    "bytes": 5636
+  },
+  {
+    "path": "seller/overview",
+    "ms": [
+      823,
+      631,
+      479,
+      311
+    ],
+    "bytes": 5702
+  },
+  {
+    "path": "seller/products",
+    "ms": [
+      391,
+      296,
+      277,
+      279
+    ],
+    "bytes": 18583
+  },
+  {
+    "path": "admin/overview",
+    "ms": [
+      510,
+      426,
+      355,
+      455
+    ],
+    "bytes": 1541
+  },
+  {
+    "path": "admin/products",
+    "ms": [
+      466,
+      401,
+      390,
+      390
+    ],
+    "bytes": 19701
+  }
+]

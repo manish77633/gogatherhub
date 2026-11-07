@@ -48,8 +48,9 @@ try {
   const initialStock = variant.stock;
   const mergedCart = await call("buyer/cart/merge", "POST", { items: [{ variantId: variant.id, quantity: 1 }] }, cookie);
   assert.equal(mergedCart.status, 201, "Guest cart merges into account");
-  assert.equal((await mergedCart.json()).items.length, 1);
-  const savedCart = await call("buyer/cart", "PUT", { items: [{ variantId: variant.id, quantity: 1 }] }, cookie);
+  const mergedCartData=await mergedCart.json();
+  assert.equal(mergedCartData.items.length, 1);
+  const savedCart = await call("buyer/cart", "PUT", { revision: mergedCartData.revision, items: [{ variantId: variant.id, quantity: 1 }] }, cookie);
   assert.equal(savedCart.status, 200, "Cart persists in database");
   const address = await call("buyer/addresses", "POST", { fullName: "Workflow Test", phone: "9999999999", line1: "123 Example Street", city: "Mumbai", state: "Maharashtra", pincode: pincode.pincode }, cookie);
   assert.equal(address.status, 201);

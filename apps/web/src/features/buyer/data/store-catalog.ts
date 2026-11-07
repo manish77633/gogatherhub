@@ -8,7 +8,7 @@ export type SuperCategory = {
   groups: CategoryGroup[];
 };
 
-// UI catalog only. Replace this source with paginated API data when catalog management is built.
+// Editorial occasion collections; product taxonomy is loaded from the category API.
 export const superCategories: SuperCategory[] = [
   {
     label: "Birthday Party",
@@ -164,6 +164,23 @@ export const superCategories: SuperCategory[] = [
     ],
   },
 ];
+
+// Occasion navigation remains editorial, but each destination resolves to one or
+// more real marketplace taxonomy slugs in the catalog API.
+export const collectionCategorySlugs: Record<string, string[]> = {
+  "birthday-party": ["cakes", "flowers", "gifts", "decor", "treats"], wedding: ["flowers", "gifts", "decor"],
+  "puja-festivals": ["puja", "decor", "treats"], "cakes-flowers": ["cakes", "flowers"], combos: ["combos"],
+  "gifts-decor": ["gifts", "decor", "home"], "birthday-combos": ["combos"], "wedding-combos": ["combos"], "puja-combos": ["combos"],
+  "cake-flowers": ["cakes", "flowers"], "cake-chocolates": ["cakes", "treats"], "gifts-decor-pairing": ["gifts", "decor"],
+  cakes: ["cakes"], "chocolate-cakes": ["cakes"], "photo-cakes": ["cakes"], "eggless-cakes": ["cakes"], flowers: ["flowers"],
+  "rose-bouquets": ["flowers"], "mixed-bouquets": ["flowers"], "flower-combos": ["flowers"], "balloons-decor": ["decor"],
+  "party-supplies": ["decor"], chocolates: ["treats"], "personalized-gifts": ["gifts"], "kids-gifts": ["gifts"], "puja-samagri": ["puja"],
+  "diyas-candles": ["puja"], "gift-hampers": ["gifts"], "festival-hampers": ["gifts"], "home-decor": ["home", "decor"], lanterns: ["decor"],
+  "gift-boxes": ["gifts"], toys: ["gifts"], "home-essentials": ["home"], "first-birthday": ["cakes", "gifts", "decor"],
+  "milestone-birthday": ["cakes", "gifts", "decor"], "surprise-party": ["cakes", "gifts", "decor"], invitations: ["gifts"],
+  "table-styling": ["decor"], diwali: ["puja", "decor", "gifts"], "ganesh-chaturthi": ["puja", "decor"], navratri: ["puja", "decor"],
+  housewarming: ["home", "decor", "gifts"], sweets: ["treats"],
+};
 
 export const categoryHref = (slug: string) =>
   `/shop/products?collection=${encodeURIComponent(slug)}`;

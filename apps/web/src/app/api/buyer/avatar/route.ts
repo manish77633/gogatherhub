@@ -1,3 +1,4 @@
+import { boundedForm, imageSignatureMatches } from "@/lib/request-body";
 import { backendCookie } from "@/lib/tab-session";
 import { NextRequest } from "next/server";
 
@@ -10,8 +11,10 @@ export async function POST(request: NextRequest) {
   const cloud = process.env.CLOUDINARY_CLOUD_NAME, key = process.env.CLOUDINARY_API_KEY, secret = process.env.CLOUDINARY_API_SECRET;
   if (!cloud || !key || !secret || !/^[a-zA-Z0-9_-]+$/.test(cloud)) return Response.json({ error: "Profile photo upload is not configured." }, { status: 503 });
   if (Number(request.headers.get("content-length") ?? 0) > 5_500_000) return Response.json({ error: "Image must be under 5 MB." }, { status: 413 });
-  const file = (await request.formData()).get("file");
+  const formResult=await boundedForm(request,5500000);if(!formResult.ok)return formResult.response;
+  const file = formResult.form.get("file");
   if (!(file instanceof File) || !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size < 1 || file.size > 5_000_000) return Response.json({ error: "Choose a JPEG, PNG or WebP image under 5 MB." }, { status: 400 });
+  if(!await imageSignatureMatches(file))return Response.json({error:"Image content does not match the selected file type"},{status:400});
   const upload = new FormData(); upload.set("file", file); upload.set("folder", "go-gather-hub/avatars");
   try {
     const response = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/image/upload`, { method: "POST", headers: { authorization: `Basic ${Buffer.from(`${key}:${secret}`).toString("base64")}` }, body: upload, signal: AbortSignal.timeout(30000) });

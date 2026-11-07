@@ -1,3 +1,4 @@
+import { boundedText } from "@/lib/request-body";
 import { requestTab, scopeSessionCookie, tabSessionsEnabled } from "@/lib/tab-session";
 import { backendCookie } from "@/lib/tab-session";
 import { NextRequest } from "next/server";
@@ -9,7 +10,8 @@ export async function POST(request: NextRequest, context: RouteContext<"/api/aut
   if (!allowed.has(action)) return Response.json({ error: "Unknown action" }, { status: 404 });
   if (request.headers.get("origin") !== request.nextUrl.origin) return Response.json({ error: "Invalid origin" }, { status: 403 });
   if (tabSessionsEnabled() && !requestTab(request)) return Response.json({ error: { message: "Reload this page before signing in." } }, { status: 400 });
-  const body = await request.text();
+  const bodyResult=await boundedText(request,8192);if(!bodyResult.ok)return bodyResult.response;
+  const body = bodyResult.text;
   if (body.length > 8192) return Response.json({ error: "Request too large" }, { status: 413 });
   try {
     const response = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:4000"}/v1/auth/${action}`, {

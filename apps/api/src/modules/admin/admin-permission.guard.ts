@@ -5,8 +5,8 @@ import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../../database/prisma.service";
 
 const modules: Record<string, string> = {
-  overview: "analytics", activity: "audit", sellers: "seller", products: "catalog", categories: "catalog",
-  buyers: "buyer", orders: "order", returns: "return", coupons: "promotion", pincodes: "shipping", support: "support", cms: "content", reviews: "review",
+  overview: "analytics", activity: "audit", sellers: "seller", products: "catalog", categories: "catalog", "category-requests": "catalog",
+  buyers: "buyer", orders: "order", returns: "return", coupons: "promotion", pincodes: "shipping", support: "support", cms: "content", media: "content", homepage: "content", "site-sections": "content", reviews: "review",
 };
 @Injectable()
 export class AdminPermissionGuard implements CanActivate {

@@ -1,26 +1,28 @@
 import { BadRequestException, ConflictException, Controller, Get, Headers, Inject, Param, Post, Body, Patch, Delete, Put } from "@nestjs/common";
 import { Prisma, Role } from "@prisma/client";
+import { cartRevision } from "./cart-revision";
+import { consumeOrderCart, finalizeCapturedPayment } from "./payment-finalization";
 import { randomInt } from "node:crypto";
 import { z } from "zod";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../../database/prisma.service";
 import { assertRazorpayConfigured, createRazorpayOrder, fetchOrderPayments, fetchRazorpayPayment, verifyRazorpaySignature } from "./razorpay";
 
-const checkoutSchema = z.object({
+const checkoutSchema = z.strictObject({
   addressId: z.uuid(),
   idempotencyKey: z.string().min(16).max(100),
   couponCode: z.string().trim().max(40).optional(),
   paymentMethod: z.enum(["COD", "ONLINE"]),
-  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().min(1).max(10000), kitGroupKey: z.string().max(100).optional() })).min(1).max(100),
+  items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().min(1).max(10000), kitGroupKey: z.string().max(100).optional() })).min(1).max(100),
 });
 const quoteSchema = checkoutSchema.omit({ idempotencyKey: true });
-const addressSchema = z.object({
+const addressSchema = z.strictObject({
   fullName: z.string().trim().min(2).max(120).regex(/^[\p{L}][\p{L}\p{M} .'-]*$/u), phone: z.string().regex(/^[6-9]\d{9}$/),
   line1: z.string().trim().min(5).max(200), line2: z.string().trim().max(200).optional(),
   city: z.string().trim().min(2).max(100).regex(/^[\p{L}\p{M} .'-]+$/u), state: z.string().trim().min(2).max(100).regex(/^[\p{L}\p{M} .'-]+$/u),
   pincode: z.string().regex(/^[1-9]\d{5}$/),
 });
-const cartSchema = z.object({ items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().min(1).max(10000) })).max(100) });
+const cartSchema = z.strictObject({ items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().min(1).max(10000) })).max(100) });
 
 @Controller("buyer")
 export class CheckoutController {
@@ -30,7 +32,7 @@ export class CheckoutController {
   async availableCoupons(@Headers("cookie") cookie?: string) {
     await this.auth.requireRole(cookie, [Role.BUYER]);
     const now = new Date();
-    const coupons = await this.db.coupon.findMany({ where: { active: true, startsAt: { lte: now }, expiresAt: { gte: now } }, select: { code: true, discountAmount: true, minSubtotal: true, expiresAt: true, usageLimit: true, usedCount: true }, orderBy: { expiresAt: "asc" }, take: 100 });
+    const coupons = await this.db.coupon.findMany({ where: { active: true, startsAt: { lte: now }, expiresAt: { gte: now } }, select: { sellerId: true, code: true, discountAmount: true, minSubtotal: true, expiresAt: true, usageLimit: true, usedCount: true }, orderBy: { expiresAt: "asc" }, take: 100 });
     return coupons.filter(coupon => coupon.usageLimit === null || coupon.usedCount < coupon.usageLimit).slice(0, 50);
   }
 
@@ -39,7 +41,7 @@ export class CheckoutController {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
     await this.expireStalePayments(buyer.id);
     const parsed = quoteSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid checkout details");
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid checkout details", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     const input = parsed.data;
     const address = await this.db.address.findFirst({ where: { id: input.addressId, userId: buyer.id } });
     if (!address) throw new BadRequestException("Address unavailable");
@@ -47,7 +49,7 @@ export class CheckoutController {
     if (!service?.active) throw new BadRequestException(`Delivery is not available for PIN code ${address.pincode}. Please choose another address.`);
     if (input.paymentMethod === "COD" && !service.cod) throw new BadRequestException(`Cash on delivery is not available for PIN code ${address.pincode}. Please choose online payment or another address.`);
     const ids = [...new Set(input.items.map(item => item.variantId))];
-    const variants = await this.db.variant.findMany({ where: { id: { in: ids }, active: true, product: { status: "ACTIVE", deletedAt: null, seller: { status: "APPROVED", isOpen: true } } }, include: { product: { select: { name: true } } } });
+    const variants = await this.db.variant.findMany({ where: { id: { in: ids }, active: true, product: { status: "ACTIVE", deletedAt: null, seller: { status: "APPROVED", isOpen: true } } }, include: { product: { select: { name: true, sellerId: true } } } });
     if (variants.length !== ids.length) throw new BadRequestException("A product is unavailable");
     const byId = new Map(variants.map(variant => [variant.id, variant]));
     const quantities = new Map<string, number>();
@@ -63,6 +65,7 @@ export class CheckoutController {
       const coupon = await this.db.coupon.findUnique({ where: { code: input.couponCode.toUpperCase() } });
       const now = new Date();
       if (!coupon?.active || coupon.startsAt > now || coupon.expiresAt < now || subtotal.lt(coupon.minSubtotal) || coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) throw new BadRequestException("Coupon unavailable");
+      if (coupon.sellerId && variants.some(v => v.product.sellerId !== coupon.sellerId)) throw new BadRequestException("This seller coupon requires a cart containing only this shop’s products");
       discount = Prisma.Decimal.min(coupon.discountAmount, subtotal);
     }
     const codFee = input.paymentMethod === "COD" ? service.codFee : new Prisma.Decimal(0);
@@ -78,8 +81,8 @@ export class CheckoutController {
   @Post("returns")
   async requestReturn(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ orderItemId: z.uuid(), reason: z.string().trim().min(10).max(1000) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid return request");
+    const parsed = z.strictObject({ orderItemId: z.uuid(), reason: z.string().trim().min(10).max(1000) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid return request", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     const item = await this.db.orderItem.findFirst({ where: { id: parsed.data.orderItemId, sellerOrder: { status: "DELIVERED", order: { buyerId: buyer.id, status: { not: "CANCELLED" } } } }, include: { sellerOrder: { select: { sellerId: true } } } });
     if (!item) throw new BadRequestException("Return request is available after delivery only");
     return this.db.returnRequest.create({ data: { ...parsed.data, buyerId: buyer.id, sellerId: item.sellerOrder.sellerId } });
@@ -94,8 +97,8 @@ export class CheckoutController {
   @Post("reviews")
   async submitReview(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ orderItemId: z.uuid(), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(160), body: z.string().trim().min(10).max(3000) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid review");
+    const parsed = z.strictObject({ orderItemId: z.uuid(), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(160), body: z.string().trim().min(10).max(3000) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid review", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     const item = await this.db.orderItem.findFirst({ where: { id: parsed.data.orderItemId, sellerOrder: { status: "DELIVERED", order: { buyerId: buyer.id, status: { not: "CANCELLED" } } } }, include: { variant: { select: { productId: true } } } });
     if (!item) throw new BadRequestException("Review is available after delivery only");
     return this.db.review.create({ data: { ...parsed.data, buyerId: buyer.id, productId: item.variant.productId } });
@@ -142,20 +145,22 @@ export class CheckoutController {
   async cart(@Headers("cookie") cookie?: string) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
     const items = await this.db.cartItem.findMany({ where: { userId: buyer.id }, include: { variant: { include: { product: { select: { slug: true, name: true, status: true, seller: { select: { status: true } } } } } } }, orderBy: { updatedAt: "desc" } });
-    return { userId: buyer.id, items: items.map(item => ({ variantId: item.variantId, quantity: item.quantity, slug: item.variant.product.slug, name: item.variant.product.name, stock: item.variant.stock, price: item.variant.price, available: item.variant.active && item.variant.product.status === "ACTIVE" && item.variant.product.seller.status === "APPROVED" })) };
+    return { userId: buyer.id, revision: cartRevision(items), items: items.map(item => ({ variantId: item.variantId, quantity: item.quantity, slug: item.variant.product.slug, name: item.variant.product.name, stock: item.variant.stock, price: item.variant.price, available: item.variant.active && item.variant.product.status === "ACTIVE" && item.variant.product.seller.status === "APPROVED" })) };
   }
 
   @Put("cart")
   async saveCart(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = cartSchema.safeParse(body);
+    const parsed = cartSchema.extend({revision:z.string().regex(/^[a-f0-9]{64}$/)}).safeParse(body);
     if (!parsed.success || new Set(parsed.data.items.map(item => item.variantId)).size !== parsed.data.items.length) throw new BadRequestException("Invalid cart");
     const variants = await this.db.variant.findMany({ where: { id: { in: parsed.data.items.map(item => item.variantId) }, active: true, product: { status: "ACTIVE", deletedAt: null, seller: { status: "APPROVED" } } } });
     if (variants.length !== parsed.data.items.length || parsed.data.items.some(item => item.quantity > (variants.find(variant => variant.id === item.variantId)?.stock ?? 0))) throw new BadRequestException("Cart contains unavailable stock");
     await this.db.$transaction(async tx => {
+      const current=await tx.cartItem.findMany({where:{userId:buyer.id}});
+      if(cartRevision(current)!==parsed.data.revision)throw new ConflictException("Your cart changed in another request. Reload your cart before saving.");
       await tx.cartItem.deleteMany({ where: { userId: buyer.id } });
       if (parsed.data.items.length) await tx.cartItem.createMany({ data: parsed.data.items.map(item => ({ userId: buyer.id, ...item })) });
-    });
+    }, {isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
     return this.cart(cookie);
   }
 
@@ -163,16 +168,20 @@ export class CheckoutController {
   async mergeCart(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
     const parsed = cartSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid cart");
-    const valid = await this.db.variant.findMany({ where: { id: { in: parsed.data.items.map(item => item.variantId) }, active: true, product: { status: "ACTIVE", deletedAt: null, seller: { status: "APPROVED" } } } });
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid cart", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
+    await this.db.$transaction(async tx => {
+    const valid = await tx.variant.findMany({ where: { id: { in: parsed.data.items.map(item => item.variantId) }, active: true, product: { status: "ACTIVE", deletedAt: null, seller: { status: "APPROVED" } } } });
+    if(valid.length!==new Set(parsed.data.items.map(item=>item.variantId)).size)throw new BadRequestException("Cart contains an unavailable product; review your bag before retrying");
     const stocks = new Map(valid.map(item => [item.id, item.stock]));
     for (const item of parsed.data.items) {
       const stock = stocks.get(item.variantId);
-      if (!stock) continue;
-      const existing = await this.db.cartItem.findUnique({ where: { userId_variantId: { userId: buyer.id, variantId: item.variantId } } });
-      const quantity = Math.min(Math.max(item.quantity, existing?.quantity ?? 0), stock);
-      await this.db.cartItem.upsert({ where: { userId_variantId: { userId: buyer.id, variantId: item.variantId } }, create: { userId: buyer.id, variantId: item.variantId, quantity }, update: { quantity } });
+      if (!stock) throw new ConflictException("An item is out of stock. Your cart has not been changed.");
+      const existing = await tx.cartItem.findUnique({ where: { userId_variantId: { userId: buyer.id, variantId: item.variantId } } });
+      const quantity = Math.max(item.quantity, existing?.quantity ?? 0);
+      if(quantity>stock)throw new ConflictException("Stock changed. Review the requested quantities; your cart has not been changed.");
+      await tx.cartItem.upsert({ where: { userId_variantId: { userId: buyer.id, variantId: item.variantId } }, create: { userId: buyer.id, variantId: item.variantId, quantity }, update: { quantity } });
     }
+    }, {isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
     return this.cart(cookie);
   }
 
@@ -185,32 +194,34 @@ export class CheckoutController {
   @Patch("profile/avatar")
   async updateAvatar(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ avatarUrl: z.string().url().max(2048).regex(/^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/image\/upload\//) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid profile image");
+    const parsed = z.strictObject({ avatarUrl: z.string().url().max(2048).regex(/^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/image\/upload\//) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid profile image", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     return this.db.user.update({ where: { id: buyer.id }, data: { avatarUrl: parsed.data.avatarUrl }, select: { avatarUrl: true } });
   }
 
   @Patch("profile")
   async updateProfile(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ name: z.string().trim().min(2).max(120) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid name");
-    const updated = await this.db.user.update({ where: { id: buyer.id }, data: { name: parsed.data.name }, select: { id: true, name: true, email: true } });
-    await this.db.auditLog.create({ data: { actorId: buyer.id, action: "buyer.profile.update", entity: "user", entityId: buyer.id } });
-    return updated;
+    const parsed = z.strictObject({ name: z.string().trim().min(2).max(120) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid name", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
+    return this.db.$transaction(async tx => {
+      const updated = await tx.user.update({ where: { id: buyer.id }, data: { name: parsed.data.name }, select: { id: true, name: true, email: true } });
+      await tx.auditLog.create({ data: { actorId: buyer.id, action: "buyer.profile.update", entity: "user", entityId: buyer.id } });
+      return updated;
+    });
   }
 
   @Get("orders")
   async orderHistory(@Headers("cookie") cookie?: string) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    return this.db.order.findMany({ where: { buyerId: buyer.id }, include: { sellerOrders: { include: { seller: { select: { shopName: true } }, items: { include: { variant: { include: { product: { select: { slug: true, imageUrl: true } } } } } } } } }, orderBy: { createdAt: "desc" }, take: 100 });
+    return this.db.order.findMany({ where: { buyerId: buyer.id }, include: { sellerOrders: { include: { seller: { select: { shopName: true } }, items: { include: { variant: { select: { id: true, label: true, product: { select: { slug: true, imageUrl: true } } } } } } } } }, orderBy: { createdAt: "desc" }, take: 100 });
   }
 
   @Post("orders/:id/cancel")
   async cancelOrder(@Headers("cookie") cookie: string | undefined, @Param("id") id: string, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ reason: z.string().trim().min(3).max(500) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Provide a cancellation reason");
+    const parsed = z.strictObject({ reason: z.string().trim().min(3).max(500) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Provide a cancellation reason", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     return this.db.$transaction(async tx => {
       const order = await tx.order.findFirst({ where: { id, buyerId: buyer.id }, include: { sellerOrders: { include: { items: true } } } });
       if (!order || order.status !== "PLACED" || order.paymentMethod !== "COD" || order.sellerOrders.some(item => !["NEW", "ACCEPTED"].includes(item.status))) throw new BadRequestException("Order cannot be cancelled online");
@@ -274,8 +285,8 @@ export class CheckoutController {
   @Post("support")
   async createTicket(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ subject: z.string().trim().min(4).max(160), message: z.string().trim().min(10).max(5000) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid ticket");
+    const parsed = z.strictObject({ subject: z.string().trim().min(4).max(160), message: z.string().trim().min(10).max(5000) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid ticket", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     return this.db.supportTicket.create({ data: { userId: buyer.id, ...parsed.data } });
   }
 
@@ -297,7 +308,7 @@ export class CheckoutController {
   }
 
   @Post("orders")
-  async place(@Headers("cookie") cookie: string | undefined, @Body() body: unknown) {
+  async place(@Headers("cookie") cookie: string | undefined, @Body() body: unknown): Promise<Record<string, unknown>> {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
     await this.expireStalePayments(buyer.id);
     const parsed = checkoutSchema.safeParse(body);
@@ -349,6 +360,7 @@ export class CheckoutController {
           if (!coupon?.active || coupon.startsAt > now || coupon.expiresAt < now || subtotal.lt(coupon.minSubtotal)) throw new BadRequestException("Coupon unavailable");
           const updated = await tx.coupon.updateMany({ where: { id: coupon.id, ...(coupon.usageLimit === null ? {} : { usedCount: { lt: coupon.usageLimit } }) }, data: { usedCount: { increment: 1 } } });
           if (updated.count !== 1) throw new ConflictException("Coupon usage limit reached");
+          if (coupon.sellerId && variants.some(v => v.product.sellerId !== coupon.sellerId)) throw new BadRequestException("This seller coupon requires a cart containing only this shop’s products");
           couponId = coupon.id;
           discount = Prisma.Decimal.min(coupon.discountAmount, subtotal);
         }
@@ -362,14 +374,15 @@ export class CheckoutController {
           subtotal, discount, shipping, codFee, total: subtotal.sub(discount).add(shipping).add(codFee),
           sellerOrders: { create: Array.from(bySeller, ([sellerId, group]) => ({ sellerId, subtotal: group.subtotal, items: { create: group.items } })) },
         } });
-        if (input.paymentMethod === "COD") await tx.cartItem.deleteMany({ where: { userId: buyer.id, variantId: { in: uniqueIds } } });
+        if (input.paymentMethod === "COD") await consumeOrderCart(tx, order);
         return { id: order.id, orderNumber: order.orderNumber, status: order.status, total: order.total };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       return input.paymentMethod === "ONLINE" ? this.onlineCheckout(placed.id, buyer.id) : placed;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        // Apply the same fingerprint check as the normal idempotent path.
         const order = await this.db.order.findUnique({ where: { buyerId_idempotencyKey: { buyerId: buyer.id, idempotencyKey: input.idempotencyKey } } });
-        if (order) return input.paymentMethod === "ONLINE" ? this.onlineCheckout(order.id, buyer.id) : { id: order.id, orderNumber: order.orderNumber, status: order.status, total: order.total };
+        if (order) return this.place(cookie, body);
       }
       throw error;
     }
@@ -401,8 +414,7 @@ export class CheckoutController {
           const current = await this.db.order.findUnique({ where: { id: order.id } });
           const captured = payments.items.find(payment => payment.order_id === order.razorpayOrderId && payment.status === "captured" && payment.currency === "INR" && payment.amount === current?.total.mul(100).toNumber());
           if (captured) {
-            const updated = await this.db.order.updateMany({ where: { id: order.id, status: "PAYMENT_PENDING", paymentStatus: "PENDING" }, data: { status: "PLACED", paymentStatus: "PAID", razorpayPaymentId: captured.id, paymentExpiresAt: null } });
-            if (updated.count) await this.clearPaidCart(order.id, buyerId);
+            await finalizeCapturedPayment(this.db, order.id, buyerId, captured.id, "payment.reconciled");
           } else await this.cancelPendingPayment(order.id, buyerId);
         } else await this.cancelPendingPayment(order.id, buyerId);
       } catch { /* Retain the stock reservation when payment status cannot be verified. */ }
@@ -428,8 +440,7 @@ export class CheckoutController {
       const payments = await fetchOrderPayments(order.razorpayOrderId);
       const captured = payments.items.find(payment => payment.order_id === order.razorpayOrderId && payment.status === "captured" && payment.currency === "INR" && payment.amount === order.total.mul(100).toNumber());
       if (captured) {
-        await this.db.order.updateMany({ where: { id: order.id, status: "PAYMENT_PENDING", paymentStatus: "PENDING" }, data: { status: "PLACED", paymentStatus: "PAID", razorpayPaymentId: captured.id, paymentExpiresAt: null } });
-        await this.clearPaidCart(order.id, buyerId);
+        await finalizeCapturedPayment(this.db, order.id, buyerId, captured.id, "payment.reconciled");
         return { id: order.id, orderNumber: order.orderNumber, status: "PLACED", total: order.total, paid: true };
       }
     }
@@ -449,32 +460,22 @@ export class CheckoutController {
   @Post("orders/:id/payment/verify")
   async verifyPayment(@Headers("cookie") cookie: string | undefined, @Param("id") id: string, @Body() body: unknown) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const parsed = z.object({ razorpay_order_id: z.string().regex(/^order_[A-Za-z0-9]+$/), razorpay_payment_id: z.string().regex(/^pay_[A-Za-z0-9]+$/), razorpay_signature: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(body);
-    if (!parsed.success) throw new BadRequestException("Invalid payment details");
+    const parsed = z.strictObject({ razorpay_order_id: z.string().regex(/^order_[A-Za-z0-9]+$/), razorpay_payment_id: z.string().regex(/^pay_[A-Za-z0-9]+$/), razorpay_signature: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ message: "Invalid payment details", fields: parsed.error.flatten().fieldErrors, issues: parsed.error.flatten().formErrors });
     const order = await this.db.order.findFirst({ where: { id, buyerId: buyer.id, paymentMethod: "ONLINE" } });
     if (!order?.razorpayOrderId || order.razorpayOrderId !== parsed.data.razorpay_order_id) throw new BadRequestException("Payment order mismatch");
     verifyRazorpaySignature(order.razorpayOrderId, parsed.data.razorpay_payment_id, parsed.data.razorpay_signature);
     const payment = await fetchRazorpayPayment(parsed.data.razorpay_payment_id);
     const amount = order.total.mul(100).toNumber();
     if (payment.id !== parsed.data.razorpay_payment_id || payment.order_id !== order.razorpayOrderId || payment.status !== "captured" || payment.currency !== "INR" || payment.amount !== amount) throw new BadRequestException("Payment has not been captured");
-    if (order.paymentStatus !== "PAID") {
-      const updated = await this.db.order.updateMany({ where: { id, buyerId: buyer.id, status: "PAYMENT_PENDING", paymentStatus: "PENDING" }, data: { status: "PLACED", paymentStatus: "PAID", razorpayPaymentId: payment.id, paymentExpiresAt: null } });
-      if (!updated.count) throw new ConflictException("Payment state changed; refresh order");
-      await this.clearPaidCart(id, buyer.id);
-      await this.db.auditLog.create({ data: { actorId: buyer.id, action: "payment.captured", entity: "order", entityId: id } });
-    }
+    await finalizeCapturedPayment(this.db, order.id, buyer.id, payment.id, "payment.captured");
     return { id: order.id, orderNumber: order.orderNumber, status: "PLACED", total: order.total, paid: true };
-  }
-
-  async clearPaidCart(orderId: string, buyerId: string) {
-    const items = await this.db.orderItem.findMany({ where: { sellerOrder: { orderId, order: { buyerId, paymentStatus: "PAID" } } }, select: { variantId: true } });
-    if (items.length) await this.db.cartItem.deleteMany({ where: { userId: buyerId, variantId: { in: items.map(item => item.variantId) } } });
   }
 
   @Get("orders/:id")
   async one(@Headers("cookie") cookie: string | undefined, @Param("id") id: string) {
     const buyer = await this.auth.requireRole(cookie, [Role.BUYER]);
-    const order = await this.db.order.findFirst({ where: { id, buyerId: buyer.id }, include: { address: true, sellerOrders: { include: { seller: { select: { shopName: true } }, items: { include: { variant: { include: { product: { select: { slug: true, imageUrl: true } } } } } } } } } });
+    const order = await this.db.order.findFirst({ where: { id, buyerId: buyer.id }, include: { address: true, sellerOrders: { include: { seller: { select: { shopName: true } }, items: { include: { variant: { select: { id: true, label: true, product: { select: { slug: true, imageUrl: true } } } } } } } } } });
     if (!order) throw new BadRequestException("Order unavailable");
     return order;
   }

@@ -5,6 +5,7 @@
   overflow: visible !important;
 }
 .store-categories > .ggh-nav-item {
+  position: relative;
   height: 46px;
   display: flex;
   align-items: center;
@@ -35,17 +36,19 @@
 .ggh-mega-menu {
   display: none;
   position: absolute;
-  left: clamp(15px, 3vw, 45px);
-  right: clamp(15px, 3vw, 45px);
+  left: 50%;
+  right: auto;
+  transform: translateX(calc(-50% + var(--mega-shift, 0px)));
+  width: min(calc(100vw - 32px), max(620px, calc(500px + var(--mega-link-count, 3) * 42px)));
   top: 100%;
   z-index: 30;
-  grid-template-columns: minmax(185px, 1.1fr) repeat(3, minmax(0, 1fr));
-  gap: 30px;
+  grid-template-columns: minmax(0, 1.05fr) repeat(var(--mega-group-count, 1), minmax(0, 1fr)) minmax(0, .9fr);
+  gap: 20px;
   background: #fffdfc;
   border: 1px solid #efe6e3;
   box-shadow: 0 18px 40px #30232524;
   border-radius: 0 0 18px 18px;
-  padding: 28px 36px;
+  padding: 24px;
   text-align: left;
 }
 .ggh-mega-menu.is-visible {
@@ -85,6 +88,37 @@
   font-size: 12px !important;
   font-weight: 500 !important;
   color: #6d6267;
+}
+.ggh-mega-image {
+  position: relative;
+  display: block !important;
+  min-height: 150px;
+  overflow: hidden;
+  align-self: stretch;
+  border-radius: 10px;
+  background: #f7edeb;
+}
+.ggh-mega-image img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .25s ease;
+}
+.ggh-mega-image:hover img { transform: scale(1.04); }
+.ggh-mega-image > span {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 24px 10px 10px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  background: linear-gradient(transparent, #241c1ccc);
 }
 .store-actions .ggh-location-trigger {
   position: relative;
@@ -518,6 +552,7 @@
 }
 @media (max-width: 900px) {
   .ggh-mega-menu {
+    width: min(calc(100vw - 32px), max(560px, calc(460px + var(--mega-link-count, 3) * 36px)));
     grid-template-columns: repeat(2, 1fr);
     gap: 15px;
   }
@@ -568,6 +603,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
   }
+  .ggh-mega-image { display: none !important; }
   .ggh-mega-menu.is-visible {
     display: grid !important;
   }

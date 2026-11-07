@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { commerceStorage } from "./commerce-storage";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useDemoCommerce } from "@/features/buyer/components/storefront";
 import { formatMoney } from "@/features/buyer/data/demo-data";
@@ -33,6 +34,7 @@ export function CheckoutView({ initialCoupon }: { initialCoupon: string }) {
   const [catalogError, setCatalogError] = useState("");
   const idempotencyKey = useRef<string | null>(null);
   const submitting = useRef(false);
+  const addressSubmitting = useRef(false);
   const lines: { slug: string; quantity: number; kitGroupKey?: string }[] = [...Object.entries(cart).filter(([, quantity]) => quantity > 0).map(([slug, quantity]) => ({ slug, quantity })),
     ...kits.flatMap(kit => Object.entries(kit.items).filter(([, quantity]) => quantity > 0).map(([slug, quantity]) => ({ slug, quantity, kitGroupKey: kit.key })))];
   const estimate = lines.reduce((sum, line) => {
@@ -135,8 +137,11 @@ export function CheckoutView({ initialCoupon }: { initialCoupon: string }) {
         setConfirmation(order);
         sessionStorage.removeItem("ggh_checkout_attempt");
         invalidateAccountPath("orders");
-        Object.keys(cart).forEach(slug => setCartQuantity(slug, 0));
-        kits.forEach(kit => removeKit(kit.key));
+        const latestCart=JSON.parse(commerceStorage().getItem("ggh-demo-cart")??"{}");
+        for(const [slug,quantity] of Object.entries(cart))if(latestCart[slug]===quantity)setCartQuantity(slug,0);
+        const latestKits=JSON.parse(commerceStorage().getItem("ggh-demo-kits")??"[]");
+        for(const kit of kits){const current=latestKits.find((item:{key:string})=>item.key===kit.key);if(current&&JSON.stringify(current.items)===JSON.stringify(kit.items))removeKit(kit.key);}
+        window.dispatchEvent(new Event("ggh-order-confirmed"));
       };
       if (paymentMethod === "COD" || result.paid) { complete(result); return; }
       if (!result.razorpayOrderId || !result.keyId) throw new Error("Payment order could not be prepared.");

@@ -23,6 +23,6 @@ http.createServer(async (req, res) => {
   if (req.url.startsWith("/v1/catalog")) return reply(200, { items: [], categories: [], variants: [] });
   if (!user) return reply(401, { error: { message: "Sign in required" } });
   if (req.url === "/v1/auth/me" || req.url === "/v1/buyer/profile") return reply(200, user);
-  if (req.url === "/v1/buyer/cart") return reply(200, { userId: user.id, items: [] });
+  if (req.url === "/v1/buyer/cart") return reply(200, { userId: user.id, revision: "a".repeat(64), items: [] });
   return reply(200, []);
 }).listen(4310, "127.0.0.1");

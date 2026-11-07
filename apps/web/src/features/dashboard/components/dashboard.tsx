@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { NavigationHint } from "@/components/navigation-hint";
+import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   LayoutDashboard,
@@ -31,7 +33,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { adminNav, sellerNav, slug } from "@/features/dashboard/data/navigation";
 import { LogoutButton } from "@/features/buyer/components/logout-button";
 import { DashboardUserContext } from "./dashboard-context";
-import { clearDashboardCache, warmDashboardCache } from "./dashboard-cache";
+import { clearDashboardCache, fetchPanel, warmDashboardCache } from "./dashboard-cache";
 import {
   Badge,
   Button,
@@ -58,12 +60,18 @@ const navIcons: Record<string, LucideIcon> = {
   Settings: Settings,
   Sellers: Store,
   Buyers: Users,
+  Customers: Users,
+  Analytics: ChartNoAxesCombined,
   Categories: Tags,
+  "Category Requests": Tags,
   "Brands and Attributes": SlidersHorizontal,
   Wallet: Wallet,
   "Coupons and Offers": Percent,
   Shipping: Truck,
   CMS: FileText,
+  Homepage: LayoutDashboard,
+  Pages: FileText,
+  "Media Library": Package,
   SEO: Search,
   Reports: ChartNoAxesCombined,
   "Staff and Permissions": ShieldCheck,
@@ -79,6 +87,16 @@ export function DashboardShell({
 }) {
   const [open, setOpen] = useState(false);
   const nav = panel === "seller" ? sellerNav : adminNav;
+  const activePath = usePathname();
+  const router = useRouter();
+  const prefetch = (label: string) => { const resource = ({ "My Shop": "shop", "Coupons and Offers": "coupons", Shipping: "pincodes", "Staff and Permissions": "roles", "Category Requests": "category-requests" } as Record<string,string>)[label] ?? slug(label); if ((panel==="admin"?["overview","products","orders","returns","reviews","support","categories","category-requests","sellers","buyers","coupons","pincodes","cms","roles"]:["overview","shop","products","inventory","orders","returns","reviews","support","category-requests","coupons","customers","analytics","payments"]).includes(resource)) void fetchPanel(userId,panel,resource).catch(()=>{}); router.prefetch(`/${panel}/${slug(label)}`); };
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      for (const label of nav) router.prefetch(`/${panel}/${slug(label)}`);
+      void warmDashboardCache(userId, panel, panel === "seller" ? ["overview", "products", "orders", "inventory", "shop", "coupons", "customers", "analytics", "reviews", "returns", "payments", "support"] : ["overview", "products", "orders", "sellers", "buyers", "categories"]);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [panel, userId, router, nav]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -86,13 +104,9 @@ export function DashboardShell({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => {
-    const resources = panel === "admin" ? ["overview", "orders", "products", "sellers", "buyers", "categories", "coupons", "pincodes", "support", "returns", "reviews", "cms", "roles"] : ["overview", "orders", "products", "inventory", "returns", "support", "shop"];
-    void warmDashboardCache(userId, panel, resources);
-  }, [panel, userId]);
   useEffect(() => { const clear = () => clearDashboardCache(userId); window.addEventListener("ggh-session-ended", clear); return () => window.removeEventListener("ggh-session-ended", clear); }, [userId]);
   return (
-    <DashboardUserContext.Provider value={userId}><div className="dash">
+    <DashboardUserContext.Provider value={userId}><div className={`dash dash-${panel}`}>
       <button
         className={`dash-backdrop ${open ? "open" : ""}`}
         aria-label="Close navigation"
@@ -118,7 +132,11 @@ export function DashboardShell({
             <Link
               key={label}
               href={`/${panel}/${slug(label)}`}
+              aria-current={activePath === `/${panel}/${slug(label)}` ? "page" : undefined}
               prefetch
+              onPointerDown={() => prefetch(label)}
+              onMouseEnter={() => prefetch(label)}
+              onFocus={() => prefetch(label)}
               onClick={() => setOpen(false)}
             >
               <span className="dash-nav-icon" aria-hidden="true">
@@ -127,13 +145,13 @@ export function DashboardShell({
                   return <Icon size={18} strokeWidth={1.8} />;
                 })()}
               </span>
-              <span>{label}</span>
+              <span>{label}</span><NavigationHint />
             </Link>
           ))}
         </nav>
         <div className="dash-sidebar-bottom">
           <Badge tone="success">Authenticated</Badge>
-          <p>Marketplace workspace</p>
+          <p>{panel === "seller" ? "Seller workspace" : "Marketplace workspace"}</p>
         </div>
       </aside>
       <div className="dash-main">
@@ -160,8 +178,8 @@ export function DashboardShell({
             <Link href="/shop">
               View storefront <ArrowUpRight size={15} strokeWidth={1.8} />
             </Link>
-            <span className="dash-avatar" aria-label="Demo profile">
-              D
+            <span className="dash-avatar" aria-label="Workspace profile">
+              G
             </span>
           </div>
         </header>
@@ -171,39 +189,39 @@ export function DashboardShell({
   );
 }
 const sellerStats = [
-  { label: "Sales summary", value: "₹2,48,500", change: "Demo data" },
+  { label: "Sales summary", value: "â‚¹2,48,500", change: "Demo data" },
   { label: "Total orders", value: "128" },
   { label: "Pending orders", value: "12" },
   { label: "Total products", value: "46" },
   { label: "Low-stock products", value: "5" },
 ];
 const adminStats = [
-  { label: "Total sales", value: "₹18,42,900", change: "Demo data" },
+  { label: "Total sales", value: "â‚¹18,42,900", change: "Demo data" },
   { label: "Total orders", value: "964" },
   { label: "Active sellers", value: "38" },
   { label: "Active buyers", value: "2,410" },
   { label: "Seller approvals", value: "6" },
   { label: "Product approvals", value: "14" },
   { label: "Returns", value: "9" },
-  { label: "Pending payouts", value: "₹1,62,000" },
+  { label: "Pending payouts", value: "â‚¹1,62,000" },
 ];
 const sellerOrders = [
   {
     id: "#MV-10482",
     buyer: "Aarav Mehta",
-    amount: "₹3,890",
+    amount: "â‚¹3,890",
     status: <Badge tone="warning">Pending</Badge>,
   },
   {
     id: "#MV-10481",
     buyer: "Nisha Kapoor",
-    amount: "₹2,490",
+    amount: "â‚¹2,490",
     status: <Badge tone="success">Shipped</Badge>,
   },
   {
     id: "#MV-10480",
     buyer: "Rohan Shah",
-    amount: "₹5,990",
+    amount: "â‚¹5,990",
     status: <Badge>Processing</Badge>,
   },
 ];
@@ -252,7 +270,7 @@ export function DashboardOverview({ panel }: { panel: Panel }) {
             <div>
               <h2>Sales overview</h2>
               <p className="small muted">
-                Illustrative weekly trend · no analytics service connected
+                Illustrative weekly trend Â· no analytics service connected
               </p>
             </div>
             <Badge>7 days</Badge>

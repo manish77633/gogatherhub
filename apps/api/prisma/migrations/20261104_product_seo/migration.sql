@@ -1,0 +1,1 @@
+ALTER TABLE "Product" ADD COLUMN "seoTitle" VARCHAR(200), ADD COLUMN "seoDescription" VARCHAR(500);

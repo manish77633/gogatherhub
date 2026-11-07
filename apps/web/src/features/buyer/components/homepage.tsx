@@ -14,9 +14,13 @@ import {
   Sparkles,
   Flame,
   Star,
+  Heart,
 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent, type ReactNode } from "react";
 import { formatMoney, products, type DemoProduct } from "@/features/buyer/data/demo-data";
+import { CmsSiteSection } from "./cms-site-section";
+import { HomeCategoryShowcase } from "./home-category-showcase";
+import { CelebrationStory, BudgetDiscovery } from "./home-discovery";
 import { StoreIcon, useDemoCommerce } from "@/features/buyer/components/storefront";
 import { ProductActions } from "@/features/buyer/components/product-actions";
 import { categoryHref, demoCombos, superCategories } from "@/features/buyer/data/store-catalog";
@@ -29,24 +33,6 @@ const heroSlides = [
     description: "Wedding gifts · Birthday surprises · Festival joy & more",
     image: "/hero-gift-v1.png",
     href: "/shop/products?q=gift",
-  },
-  {
-    eyebrow: "The wedding edit",
-    first: "Celebrate Every",
-    large: "Love Story",
-    description: "Thoughtful details for the moments that last forever",
-    image:
-      "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=1600&q=90",
-    href: "/shop/products?q=wedding",
-  },
-  {
-    eyebrow: "Made to remember",
-    first: "Little Joys,",
-    large: "Big Memories",
-    description: "Beautiful finds for birthdays, gatherings and beyond",
-    image:
-      "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=1600&q=90",
-    href: "/shop/products?q=birthday",
   },
 ];
 const occasions = [
@@ -84,21 +70,21 @@ const occasions = [
 const promos = [
   {
     title: "Wedding Collection",
-    offer: "Up to 40% OFF",
+    offer: "Thoughtful gifts for the big day",
     image:
       "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=1100&q=85",
     href: "/shop/products?q=wedding",
   },
   {
     title: "Birthday Specials",
-    offer: "Up to 50% OFF",
+    offer: "Make their day memorable",
     image:
       "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=1100&q=85",
     href: "/shop/products?q=birthday",
   },
   {
     title: "Festival Essentials",
-    offer: "Up to 60% OFF",
+    offer: "Celebrate every tradition",
     image: "/product-festival-lantern-v1.png",
     href: "/shop/products?q=festival",
   },
@@ -147,12 +133,14 @@ const faqs = [
   },
 ];
 
-function Hero() {
+function Hero({section}:{section?:PublishedSection}) {
+  const data=section?.published;
+  const managedSlides=data?[{eyebrow:"Gifts for every occasion",first:"",large:String(data.heading??"Make Every Moment More Special"),description:String(data.description??""),image:String(data.imageUrl??"/hero-gift-v1.png"),href:String(data.buttonUrl??"/shop/products"),buttonLabel:String(data.buttonLabel??"Explore Collection")},...(Array.isArray(data.items)?data.items as Record<string,unknown>[]:[]).map(item=>({eyebrow:"Featured collection",first:"",large:String(item.heading??""),description:String(item.description??""),image:String(item.imageUrl??"/hero-gift-v1.png"),href:String(item.buttonUrl??"/shop/products"),buttonLabel:String(item.buttonLabel??"Explore Collection")}))]:heroSlides;
   const [index, setIndex] = useState(0);
-  const slide = heroSlides[index];
+  const slide = managedSlides[index%managedSlides.length];
   const go = (delta: number) =>
     setIndex(
-      (current) => (current + delta + heroSlides.length) % heroSlides.length,
+      (current) => (current + delta + managedSlides.length) % managedSlides.length,
     );
   return (
     <section className="ggh-hero" aria-label="Featured collections">
@@ -174,27 +162,27 @@ function Hero() {
         </h1>
         <p>{slide.description}</p>
         <Link className="ggh-dark-button" href={slide.href}>
-          Explore Collection <StoreIcon name="arrow" size={17} />
+          {"buttonLabel" in slide?slide.buttonLabel:"Explore Collection"} <StoreIcon name="arrow" size={17} />
         </Link>
       </div>
-      <button
+      {managedSlides.length > 1 && <button
         className="ggh-hero-arrow prev"
         type="button"
         aria-label="Previous promotion"
         onClick={() => go(-1)}
       >
         <ChevronLeft size={22} strokeWidth={1.8} />
-      </button>
-      <button
+      </button>}
+      {managedSlides.length > 1 && <button
         className="ggh-hero-arrow next"
         type="button"
         aria-label="Next promotion"
         onClick={() => go(1)}
       >
         <ChevronRight size={22} strokeWidth={1.8} />
-      </button>
-      <div className="ggh-dots" aria-label="Choose promotion">
-        {heroSlides.map((item, i) => (
+      </button>}
+      {managedSlides.length > 1 && <div className="ggh-dots" aria-label="Choose promotion">
+        {managedSlides.map((item, i) => (
           <button
             type="button"
             key={item.large}
@@ -204,7 +192,7 @@ function Hero() {
             onClick={() => setIndex(i)}
           />
         ))}
-      </div>
+      </div>}
     </section>
   );
 }
@@ -261,9 +249,7 @@ function HomeProductCard({ product }: { product: DemoProduct }) {
             sizes="(max-width: 600px) 50vw, (max-width: 1023px) 33vw, 17vw"
           />
         </Link>
-        {product.badge && (
-          <span className="ggh-product-tag">{product.badge}</span>
-        )}
+        {discount > 0 && <span className="ggh-product-tag">{discount}% OFF</span>}
         <button
           className={`ggh-wish ${saved ? "saved" : ""}`}
           type="button"
@@ -275,7 +261,7 @@ function HomeProductCard({ product }: { product: DemoProduct }) {
           aria-pressed={saved}
           onClick={() => toggleWishlist(product.id)}
         >
-          <StoreIcon name="heart" size={17} />
+          <Heart size={19} fill={saved ? "currentColor" : "none"} />
         </button>
       </div>
       <div className="ggh-product-info">
@@ -285,36 +271,26 @@ function HomeProductCard({ product }: { product: DemoProduct }) {
           <strong>{formatMoney(product.price)}</strong>
           <s>{formatMoney(product.compareAt)}</s>
         </div>
-        <div className="ggh-product-bottom">
-          <span>{discount}% off</span>
-        </div>
-        <ProductActions id={product.id} compact />
+        <ProductActions id={product.id} compact cartIcon />
       </div>
     </article>
   );
 }
-function PopularPicks() {
+function PopularPicks({section}:{section?:PublishedSection}) {
+  const data=section?.published; const chosen=Array.isArray(data?.items)?(data.items as Record<string,unknown>[]).map(item=>products.find(product=>String(item.buttonUrl??"").endsWith(`/${product.id}`))).filter((item):item is DemoProduct=>Boolean(item)):[];
   return (
     <section className="ggh-section ggh-editorial-products">
       <div className="ggh-section-head">
         <div>
-          <p className="ggh-kicker">Handpicked for your special moments</p>
-          <h2>Featured Collection</h2>
+          <p className="ggh-kicker">{String(data?.description??"Handpicked for your special moments")}</p>
+          <h2>{String(data?.heading??"Featured Collection")}</h2>
         </div>
         <Link href="/shop/products">
           View All <StoreIcon name="arrow" size={16} />
         </Link>
       </div>
       <div className="ggh-products">
-        {products
-          .filter((product) =>
-            [
-              "birthday-cake",
-              "red-rose-bouquet",
-              "wedding-gift-hamper",
-              "decor-lantern",
-            ].includes(product.id),
-          )
+        {(chosen.length?chosen:products.filter(product=>["birthday-cake","red-rose-bouquet","wedding-gift-hamper","decor-lantern"].includes(product.id)))
           .map((p) => (
             <HomeProductCard key={p.id} product={p} />
           ))}
@@ -511,7 +487,8 @@ function Benefits() {
     </section>
   );
 }
-function CollectionsAndNewsletter() {
+function CollectionsAndNewsletter({section}:{section?:PublishedSection}) {
+  const data=section?.published;
   const [email, setEmail] = useState(""),
     [message, setMessage] = useState("");
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -552,8 +529,8 @@ function CollectionsAndNewsletter() {
         />
         <div>
           <p className="ggh-kicker">The good things, first</p>
-          <h2>Subscribe to Our Newsletter</h2>
-          <p>Get collection updates and ideas for your next celebration.</p>
+          <h2>{String(data?.heading??"Subscribe to Our Newsletter")}</h2>
+          <p>{String(data?.description??"Get collection updates and ideas for your next celebration.")}</p>
           <form onSubmit={onSubmit}>
             <label className="sr-only" htmlFor="home-email">
               Email address
@@ -635,19 +612,20 @@ function Testimonials() {
     </section>
   );
 }
-function FAQ() {
+function FAQ({section}:{section?:PublishedSection}) {
+  const data=section?.published; const questions=Array.isArray(data?.items)?(data.items as Record<string,unknown>[]).map(item=>({q:String(item.heading??""),a:String(item.description??"")})):faqs;
   return (
     <section className="ggh-faq" id="faqs">
       <div>
         <p className="ggh-kicker">Here to help</p>
-        <h2>Frequently Asked Questions</h2>
-        <p>Quick answers to common queries.</p>
+        <h2>{String(data?.heading??"Frequently Asked Questions")}</h2>
+        <p>{String(data?.description??"Quick answers to common queries.")}</p>
         <Link href="/shop/products" className="ggh-light-link">
           Browse Products <StoreIcon name="arrow" size={15} />
         </Link>
       </div>
       <div className="ggh-faq-list">
-        {faqs.map((item) => (
+        {questions.map((item) => (
           <details key={item.q} name="homepage-faq">
             <summary>
               {item.q}
@@ -660,22 +638,18 @@ function FAQ() {
     </section>
   );
 }
-export function Homepage() {
-  return (
-    <main className="ggh-home">
-      <div className="ggh-container">
-        <Hero />
-        <Occasions />
-        <PromoBanners />
-        <ExploreByOccasion />
-        <PopularPicks />
-        <ComboSpotlight />
-        <CategoryExplorer />
-        <Benefits />
-        <CollectionsAndNewsletter />
-        <Testimonials />
-        <FAQ />
-      </div>
-    </main>
-  );
+type PublishedSection={key:string;published:Record<string,unknown>;position:number};
+export function Homepage({sections=[]}:{sections?:PublishedSection[]}) {
+  const managed=new Map(sections.map(section=>[section.key,section]));
+  const defaults:{key:string;content:ReactNode}[]=[
+    {key:"hero",content:<Hero/>},{key:"categories",content:<HomeCategoryShowcase/>},{key:"bestsellers",content:<PopularPicks/>},
+    {key:"gathering-edit",content:<CelebrationStory/>},
+    {key:"celebration-kits",content:<ComboSpotlight/>},
+    {key:"shop-by-budget",content:<BudgetDiscovery/>},
+    {key:"gifts-under-budget",content:<Benefits/>},{key:"newsletter",content:<CollectionsAndNewsletter/>},
+    {key:"testimonials",content:<Testimonials/>},{key:"faq",content:<FAQ/>},
+  ];
+  const extras=sections.filter(section=>!defaults.some(item=>item.key===section.key)&&!["header","announcement","footer","navigation","social-links","promotions","curated-collections","personalized-gifts","gifting-guide"].includes(section.key));
+  const ordered=defaults.map((item,index)=>({ ...item, position:Number(managed.get(item.key)?.published?.position??index) })).concat(extras.map(section=>({key:section.key,content:<CmsSiteSection section={section}/>,position:Number(section.published.position??section.position)}))).sort((a,b)=>a.position-b.position);
+  return <main className="ggh-home"><div className="ggh-container">{ordered.map(item=><Fragment key={item.key}>{managed.has(item.key)?item.key==="hero"?<Hero section={managed.get(item.key)!}/>:item.key==="categories"?<HomeCategoryShowcase heading={String(managed.get(item.key)!.published.heading??"")} description={String(managed.get(item.key)!.published.description??"")}/>:item.key==="bestsellers"?<PopularPicks section={managed.get(item.key)!}/>:item.key==="faq"?<FAQ section={managed.get(item.key)!}/>:item.key==="newsletter"?<CollectionsAndNewsletter section={managed.get(item.key)!}/>:<CmsSiteSection section={managed.get(item.key)!}/>:item.content}</Fragment>)}</div></main>;
 }

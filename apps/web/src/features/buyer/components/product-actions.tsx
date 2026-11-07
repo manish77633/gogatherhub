@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ShoppingBag } from "lucide-react";
+import { Check, ShoppingBag, ShoppingCart } from "lucide-react";
 import { useDemoCommerce } from "@/features/buyer/components/storefront";
 
 export function ProductActions({
   id,
   quantity = 1,
   compact = false,
+  cartIcon = false,
 }: {
   id: string;
   quantity?: number;
   compact?: boolean;
+  cartIcon?: boolean;
 }) {
   const { kits, cart, addToCart } = useDemoCommerce();
   const inKit = kits.some((kit) => Boolean(kit.items[id]));
@@ -29,7 +31,7 @@ export function ProductActions({
           className="ggh-add-bag"
           onClick={() => addToCart(id, quantity)}
         >
-          <ShoppingBag size={15} strokeWidth={1.9} aria-hidden="true" />
+          {cartIcon ? <ShoppingCart size={16} strokeWidth={1.9} aria-hidden="true" /> : <ShoppingBag size={15} strokeWidth={1.9} aria-hidden="true" />}
           <span>Add to bag</span>
         </button>
       )}

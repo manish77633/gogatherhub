@@ -14,3 +14,4 @@ tmp/
 .qa-edge-profile*/
 /*.png
 *.pem
+/apps/web/.next-seller-qa/

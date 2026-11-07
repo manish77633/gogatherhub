@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { Role } from "@prisma/client";
+import { BadRequestException, ForbiddenException, Inject, Injectable, Scope, UnauthorizedException } from "@nestjs/common";
+import { Role, type User } from "@prisma/client";
 import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -7,8 +7,9 @@ import { PrismaService } from "../../database/prisma.service";
 export const SESSION_COOKIE = "ggh_session";
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class AuthService {
+  private readonly identities = new Map<string, Promise<User>>();
   constructor(@Inject(PrismaService) private readonly db: PrismaService) {}
 
   async sellerStatus(userId: string) {
@@ -45,10 +46,7 @@ export class AuthService {
       if (existing) {
         if (existing.deletedAt) throw new UnauthorizedException("Account unavailable");
         if (existing.googleSub && existing.googleSub !== input.sub) throw new UnauthorizedException("A different Google account is linked to this email");
-        if (!existing.googleSub) {
-          const linked = await this.db.user.updateMany({ where: { id: existing.id, googleSub: null, deletedAt: null }, data: { googleSub: input.sub } });
-          if (!linked.count) throw new UnauthorizedException("Account changed. Please try again");
-        }
+        if (!existing.googleSub) throw new UnauthorizedException("Sign in with your password and link Google from your profile first");
         user = existing;
       } else {
         user = await this.db.user.create({ data: { email, name: input.name.slice(0, 120), googleSub: input.sub, passwordHash: await argon2.hash(randomBytes(32).toString("hex")) } });
@@ -80,9 +78,16 @@ export class AuthService {
     const token = cookieHeader?.split(";").map(part => part.trim()).find(part => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
     if (!token) throw new UnauthorizedException();
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new UnauthorizedException();
-    const session = await this.db.session.findUnique({ where: { tokenHash: hash(token) }, include: { user: true } });
-    if (!session || session.revokedAt || session.expiresAt < new Date() || session.user.deletedAt) throw new UnauthorizedException();
-    return session.user;
+    const tokenHash = hash(token);
+    let identity = this.identities.get(tokenHash);
+    if (!identity) {
+      identity = this.db.session.findUnique({ where: { tokenHash }, include: { user: true } }).then(session => {
+        if (!session || session.revokedAt || session.expiresAt < new Date() || session.user.deletedAt) throw new UnauthorizedException();
+        return session.user;
+      });
+      this.identities.set(tokenHash, identity);
+    }
+    return identity;
   }
 
   async requireRole(cookieHeader: string | undefined, roles: Role[]) {

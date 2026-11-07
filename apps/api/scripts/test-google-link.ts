@@ -1,0 +1,3 @@
+import 'reflect-metadata';import assert from 'node:assert/strict';import {AuthService} from '../src/modules/auth/auth.service';import {PrismaService} from '../src/database/prisma.service';
+const service=new AuthService({user:{findUnique:async({where}:any)=>where.googleSub?null:{id:'existing-admin',role:'ADMIN',googleSub:null,deletedAt:null}}} as PrismaService);
+void assert.rejects(service.googleLogin({sub:'verified-provider-subject',email:'admin@example.invalid',name:'User'}),/link Google/).then(()=>console.log('PASS: Google sign-in cannot silently bind an existing password/admin account by email.'));
